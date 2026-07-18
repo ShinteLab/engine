@@ -1,9 +1,11 @@
 package search_test
 
 import (
+	"context"
 	"shogi"
 	"shogi/search"
 	"testing"
+	"time"
 )
 
 // 1手詰み: 白玉を金打ちで詰ます局面。Best() が詰み手を返し、
@@ -189,7 +191,72 @@ func TestAlphaBetaReducesNodes(t *testing.T) {
 	}
 }
 
+// Movetime を短く指定すると即座に打ち切られ、緩い時間内に応答が返ることを確認する。
+func TestBestContextMovetimeCancelsQuickly(t *testing.T) {
+	b, err := shogi.NewBoard(shogi.StartPos)
+	if err != nil {
+		t.Fatalf("NewBoard() error: %v", err)
+	}
+
+	start := time.Now()
+	res, err := search.BestContext(context.Background(), b, search.Options{Depth: 20, Movetime: 10 * time.Millisecond})
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("BestContext() error: %v", err)
+	}
+	if res.Action == nil {
+		t.Fatalf("expected a valid action even when cancelled")
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("expected cancellation to return quickly, took %v", elapsed)
+	}
+}
+
+// Movetime を指定しない場合は従来どおり指定深さまで完走することを確認する。
+func TestBestContextNoMovetimeCompletesDepth(t *testing.T) {
+	b, err := shogi.NewBoard(shogi.StartPos)
+	if err != nil {
+		t.Fatalf("NewBoard() error: %v", err)
+	}
+
+	res, err := search.BestContext(context.Background(), b, search.Options{Depth: 2})
+	if err != nil {
+		t.Fatalf("BestContext() error: %v", err)
+	}
+	if res.Action == nil {
+		t.Fatalf("expected a valid action")
+	}
+}
+
+// 既にキャンセル済みの ctx を渡しても、必ず有効な手(先頭手)を返すことを確認する。
+func TestBestContextAlreadyCancelledStillReturnsMove(t *testing.T) {
+	b, err := shogi.NewBoard(shogi.StartPos)
+	if err != nil {
+		t.Fatalf("NewBoard() error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	res, err := search.BestContext(ctx, b, search.Options{Depth: 3})
+	if err != nil {
+		t.Fatalf("BestContext() error: %v", err)
+	}
+	if res.Action == nil {
+		t.Fatalf("expected a fallback action even for an already-cancelled context")
+	}
+}
+
 // BenchmarkSearchDepth3: 初期局面での depth3 探索(単一スレッド)の速度計測。
+// StageC: 2265433 ns/op(2.27ms)
+// StageD: 2815844 ns/op(zobrist hash追加)
+// StageE: 3534559 ns/op相当(history追加、未計測のため後日F-0時に実測)
+// StageF-0: legalCandidate内をcopyLite/actionLite化してCandidate()呼び出し
+// コストは削減したが、negamax自身のCopy+ActionはRepetition()判定のため
+// 引き続き履歴付きの正規Copy/Actionを使うので完全には2.3ms水準へは戻らない。
+// BenchmarkSearchDepth3-20            416           3534559 ns/op
+// StageF(仕上げ再計測): 397           3274457 ns/op
 func BenchmarkSearchDepth3(b *testing.B) {
 	board, err := shogi.NewBoard(shogi.StartPos)
 	if err != nil {
@@ -283,6 +350,36 @@ func BenchmarkSearchDepth4TT(b *testing.B) {
 	b.ResetTimer()
 	for idx := 0; idx < b.N; idx++ {
 		search.Best(board, search.Options{Depth: 4, Parallel: false, TT: true})
+	}
+}
+
+// negamax の冒頭にある千日手チェックが機能し、RepetitionDraw の局面で
+// 0 を返すことを単体で確認する。
+func TestNegamaxReturnsZeroForRepetitionDraw(t *testing.T) {
+
+	b, err := shogi.NewBoard("sfen k8/9/9/9/4K4/9/9/9/9 b - 1")
+	if err != nil {
+		t.Fatalf("NewBoard() error: %v", err)
+	}
+
+	//双方の玉が2マスを往復するだけの手順を3周し、4回目の同一局面(Draw)に到達させる。
+	cycle := []string{"5e5d", "9a9b", "5d5e", "9b9a"}
+	for cy := 0; cy < 3; cy++ {
+		for _, mov := range cycle {
+			if !b.Action(shogi.NewAction(mov)) {
+				t.Fatalf("Action(%s) failed", mov)
+			}
+		}
+	}
+
+	if b.Repetition() != shogi.RepetitionDraw {
+		t.Fatalf("setup error: expected RepetitionDraw, got %v", b.Repetition())
+	}
+
+	var nodes int64
+	score := search.ExportNegamax(context.Background(), b, 2, 1, -search.MateScore-1, search.MateScore+1, &nodes, nil)
+	if score != 0 {
+		t.Errorf("expected negamax to return 0 for a repetition-draw position, got %d", score)
 	}
 }
 

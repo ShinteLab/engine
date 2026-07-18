@@ -17,6 +17,12 @@ type Board struct {
 	camps [2]*CampBoard
 
 	hash uint64
+
+	//局面履歴(各手適用後のHash。初期局面が1件目)
+	history []uint64
+	//history[i] は「history[i]の局面に至る直前の手を指した側が、
+	//その手で(次に指す側に)王手を掛けたか」。初期局面(index 0)は false。
+	checkHistory []bool
 }
 
 const (
@@ -50,8 +56,14 @@ func NewBoard(line string) (*Board, error) {
 	//position startpos moves 6g6f 3c3d 5g5f
 	b := initBoard()
 
-	args := strings.Split(line, " ")
+	//strings.Fields は連続・前後の余分な空白を無視してトークン化する
+	//(strings.Split(line," ")だと末尾の空白等が空文字列トークンを生み、
+	// 以降のインデックス処理でパニックしうるため使わない)。
+	args := strings.Fields(line)
 	leng := len(args)
+	if leng == 0 {
+		return nil, fmt.Errorf("sfen parse error[empty]")
+	}
 	sfen := ""
 
 	idx := 0
@@ -93,33 +105,73 @@ func NewBoard(line string) (*Board, error) {
 			idx = idx + 3
 		} else {
 			idx++
+
+			//手を適用する前(=初期局面)のハッシュをhistoryの1件目として記録する
+			b.hash = b.computeHash()
+			b.history = append(b.history, b.hash)
+			b.checkHistory = append(b.checkHistory, false)
+
 			ms := args[idx:]
 			//動作させる
 			for _, mov := range ms {
-				b.Action(NewAction(mov))
+				a := NewAction(mov)
+				if a == nil {
+					//パース不能な手(nilガード)
+					return nil, fmt.Errorf("invalid move string[%s]", mov)
+				}
+				if !b.Action(a) {
+					return nil, fmt.Errorf("Action() failed for move[%s]", mov)
+				}
 				idx++
 			}
 			break
 		}
 	}
 
-	//パース完了時点でのハッシュを計算しておく
-	b.hash = b.computeHash()
+	//movesが無かった場合はここで初期局面のハッシュ・履歴を記録する
+	//(movesがあった場合は上のブロックとb.Action()経由で既に記録済み)
+	if len(b.history) == 0 {
+		b.hash = b.computeHash()
+		b.history = append(b.history, b.hash)
+		b.checkHistory = append(b.checkHistory, false)
+	}
 
 	return b, nil
 }
 
-func (b *Board) Copy() *Board {
+// 盤面(camps)のみを複製する共通部。hash・履歴は複製しない。
+func (b *Board) copyCore() *Board {
 
 	var dst Board
 	dst.turn = b.turn
-	dst.hash = b.hash
 
 	dst.camps[0] = b.camps[0].copy()
 	dst.camps[1] = b.camps[1].copy()
 	dst.camps[0].setEnemy(dst.camps[1])
 
 	return &dst
+}
+
+func (b *Board) Copy() *Board {
+
+	dst := b.copyCore()
+	dst.hash = b.hash
+
+	dst.history = make([]uint64, len(b.history))
+	copy(dst.history, b.history)
+	dst.checkHistory = make([]bool, len(b.checkHistory))
+	copy(dst.checkHistory, b.checkHistory)
+
+	return dst
+}
+
+// 軽量版 Copy: hash・履歴を複製しない。
+// legalCandidate() 内の合法性フィルタ(IsCheck 判定用の使い捨てコピー)専用。
+// このコピーに対して Repetition()/Hash() を呼び出してはならない
+// (history が nil のため Repetition() は常に RepetitionNone を返す安全側の
+// 挙動にはなるが、意味のある結果にはならない)。
+func (b *Board) copyLite() *Board {
+	return b.copyCore()
 }
 
 // 座標位置にピースを配置
@@ -254,16 +306,26 @@ func (b *Board) InCheck() bool {
 	return b.IsCheck(b.turn)
 }
 
-// 動作させる
-func (b *Board) Action(a *Action) bool {
+// 盤面への適用のみを行う共通部。手番・手数の更新のみで、
+// hash再計算・履歴追記は行わない。
+func (b *Board) actionCore(a *Action) bool {
 
-	rtn := false
-	rtn = b.camps[b.turn.Index()].action(a)
+	rtn := b.camps[b.turn.Index()].action(a)
 	if !rtn {
 		return false
 	}
 	b.turn = b.turn.Next()
 	b.num++
+
+	return true
+}
+
+// 動作させる
+func (b *Board) Action(a *Action) bool {
+
+	if !b.actionCore(a) {
+		return false
+	}
 
 	//盤面変更後のハッシュを再計算する。
 	//差分更新ではなく全再計算だが、typBoards の forEach で盤上駒数十個分の
@@ -271,7 +333,48 @@ func (b *Board) Action(a *Action) bool {
 	//コスト(µs級)に比べ十分小さい。真の差分更新は将来最適化とする。
 	b.hash = b.computeHash()
 
+	//局面履歴に追記する。checkHistory は「今の手番側(次に指す側)が
+	//直前の手によって王手を掛けられているか」、つまり直前の手を指した側が
+	//王手を掛けたかどうかを表す。
+	b.history = append(b.history, b.hash)
+	b.checkHistory = append(b.checkHistory, b.IsCheck(b.turn))
+
 	return true
+}
+
+// 軽量版 Action: hash再計算・履歴追記をスキップする。
+// legalCandidate() 内の合法性フィルタ(IsCheck 判定用の使い捨てコピー)専用。
+func (b *Board) actionLite(a *Action) bool {
+	return b.actionCore(a)
+}
+
+// 検証付きで手を適用する(GUI 等、信頼できない入力向け)。
+// a が nil の場合や、現局面の合法手(Candidate())に含まれない場合は
+// エラーを返して盤面を変更しない。ホットパス(探索内部)では検証コストを
+// 避けるため引き続き無検証の Action() を使うこと。
+func (b *Board) Move(a *Action) error {
+
+	if a == nil {
+		return fmt.Errorf("Move() error: action is nil")
+	}
+
+	s := a.String()
+	legal := false
+	for _, c := range b.Candidate() {
+		if c.String() == s {
+			legal = true
+			break
+		}
+	}
+	if !legal {
+		return fmt.Errorf("Move() error: illegal move[%s]", s)
+	}
+
+	if !b.Action(a) {
+		return fmt.Errorf("Move() error: Action() failed for [%s]", s)
+	}
+
+	return nil
 }
 
 // 現在の局面のハッシュ値(Zobrist ハッシュ)
@@ -353,8 +456,9 @@ func (b *Board) legalCandidate(checkUchifuzume bool) []*Action {
 	legal := make([]*Action, 0, len(moves))
 	for _, a := range moves {
 
-		nb := b.Copy()
-		if !nb.Action(a) {
+		//IsCheck判定用の使い捨てコピーなのでhash・履歴は不要(copyLite/actionLite)
+		nb := b.copyLite()
+		if !nb.actionLite(a) {
 			//現状は発生しないはずだがガード
 			continue
 		}

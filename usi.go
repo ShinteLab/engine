@@ -3,11 +3,15 @@ package shogi
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"golang.org/x/xerrors"
 )
@@ -20,6 +24,12 @@ type USI struct {
 	engine Engine
 
 	nowBoard *Board
+
+	options map[string]string
+
+	mu        sync.Mutex
+	cancel    context.CancelFunc
+	searching bool
 }
 
 func NewUSI(out io.Writer, in io.Reader, en Engine) *USI {
@@ -30,6 +40,7 @@ func NewUSI(out io.Writer, in io.Reader, en Engine) *USI {
 
 	inst.recv = bufio.NewScanner(in)
 	inst.engine = en
+	inst.options = make(map[string]string)
 	return &inst
 }
 
@@ -75,8 +86,6 @@ func (usi *USI) Start() error {
 			return nil
 		}
 	}
-
-	return nil
 }
 
 func (usi *USI) Wait() error {
@@ -92,7 +101,13 @@ func (usi *USI) Wait() error {
 
 	slog.Info(fmt.Sprintf("USER> [%s]", line))
 
-	cmds := strings.Split(line, " ")
+	//strings.Fields は連続する空白・前後の余分な空白を無視してトークン化する。
+	//strings.Split(line," ")では末尾の空白等が空文字列トークンを生み、
+	//下流(NewBoard等)でのインデックス範囲外パニックにつながるため使わない。
+	cmds := strings.Fields(line)
+	if len(cmds) == 0 {
+		return nil
+	}
 	var args []string
 	cmd := cmds[0]
 	if len(cmds) >= 2 {
@@ -120,13 +135,11 @@ func (usi *USI) run(cmd string, args ...string) error {
 
 	switch cmd {
 	case "quit":
-		return fmt.Errorf("quit")
+		return Quit
 	case "usi":
 		return usi.sendInformation()
 	case "setoption":
-		//msg="receive command[setoption name USI_Hash value 1024]"
-		//msg="receive command[setoption name USI_Ponder value false]"
-		return nil
+		return usi.setOption(args)
 	case "isready":
 		return usi.sendReady()
 	case "usinewgame":
@@ -136,6 +149,7 @@ func (usi *USI) run(cmd string, args ...string) error {
 	case "gameover":
 
 		//msg="receive command[gameover lose]"
+		//対局結果の通知。現状は特に何もしない(無視する)。
 		return nil
 
 	case "go":
@@ -145,9 +159,15 @@ func (usi *USI) run(cmd string, args ...string) error {
 		// go ponder -> 予想局面
 		// go ponderhit -> 予想があったった
 		// stop -> 外れた場合
-		// go mate -> 詰め将棋
-		//     checkmate
-		return usi.sendBest()
+		// go mate <ms>/go mate infinite -> 詰め将棋探索
+		//     checkmate <手順> / checkmate nomate / checkmate timeout
+		if len(args) > 0 && args[0] == "mate" {
+			return usi.mateCommand(args[1:])
+		}
+		return usi.goCommand(args)
+	case "stop":
+		usi.stopSearch()
+		return nil
 	}
 	return fmt.Errorf("invalid command.[%s]", cmd)
 }
@@ -174,7 +194,44 @@ func (usi *USI) sendReady() error {
 	return nil
 }
 
-const ()
+// setoption name <id> value <x> をパースして保持する。
+// エンジンが OptionEngine を実装していれば転送する。
+// USI_Ponder 等の option 宣言(usi応答時)は最小実装のため行わない。
+func (usi *USI) setOption(args []string) error {
+
+	if len(args) == 0 || args[0] != "name" {
+		//フォーマット不正は無視する(最小実装)
+		return nil
+	}
+
+	valueIdx := -1
+	for i, a := range args {
+		if a == "value" {
+			valueIdx = i
+			break
+		}
+	}
+
+	var name, value string
+	if valueIdx == -1 {
+		name = strings.Join(args[1:], " ")
+	} else {
+		name = strings.Join(args[1:valueIdx], " ")
+		value = strings.Join(args[valueIdx+1:], " ")
+	}
+
+	if name == "" {
+		return nil
+	}
+
+	usi.options[name] = value
+
+	if oe, ok := usi.engine.(OptionEngine); ok {
+		oe.SetOption(name, value)
+	}
+
+	return nil
+}
 
 func (usi *USI) setBoard(args []string) error {
 
@@ -194,16 +251,216 @@ const (
 	Resign = "resign"
 )
 
-func (usi *USI) sendBest() error {
+// 現在探索中であればキャンセルする。探索中でなければ何もしない。
+func (usi *USI) stopSearch() {
+	usi.mu.Lock()
+	c := usi.cancel
+	searching := usi.searching
+	usi.mu.Unlock()
 
-	slog.Info("Call GetBest()")
-
-	action, err := usi.engine.GetBest(usi.nowBoard)
-	if err != nil {
-		return err
+	if searching && c != nil {
+		c()
 	}
-	slog.Info(fmt.Sprintf("Ans:%v", action))
+}
 
-	usi.sender <- "bestmove " + action.String()
+// go コマンドを処理する。既に探索中なら前の探索をキャンセルしてから
+// 新しい探索を開始する。
+//
+// engine が ContextEngine を実装していれば非同期(goroutine)に
+// GetBestContext を実行し、info コールバックを usi.sender へ転送する。
+// bestmove は探索完了時に送出する。
+// 従来の Engine のみ実装している場合は同期的に GetBest を呼ぶ
+// (stop によるキャンセルは効かない)。
+func (usi *USI) goCommand(args []string) error {
+
+	//前の探索が残っていればキャンセルしてから開始する
+	usi.stopSearch()
+
+	if usi.nowBoard == nil {
+		return fmt.Errorf("go error: position is not set")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	movetime := parseGoTime(args, usi.nowBoard.Turn())
+	if movetime > 0 {
+		ctx, cancel = context.WithTimeout(ctx, movetime)
+	}
+
+	usi.mu.Lock()
+	usi.cancel = cancel
+	usi.searching = true
+	usi.mu.Unlock()
+
+	board := usi.nowBoard
+
+	go func() {
+		defer func() {
+			usi.mu.Lock()
+			usi.searching = false
+			usi.cancel = nil
+			usi.mu.Unlock()
+			cancel()
+		}()
+
+		var action *Action
+		var err error
+
+		if ce, ok := usi.engine.(ContextEngine); ok {
+			action, err = ce.GetBestContext(ctx, board, func(info Info) {
+				usi.sender <- formatInfo(info)
+			})
+		} else {
+			action, err = usi.engine.GetBest(board)
+		}
+
+		if err != nil {
+			slog.Error(fmt.Sprintf("GetBest error: %v", err))
+			return
+		}
+		if action == nil {
+			slog.Error("GetBest returned nil action")
+			return
+		}
+
+		slog.Info(fmt.Sprintf("Ans:%v", action))
+		usi.sender <- "bestmove " + action.String()
+	}()
+
 	return nil
+}
+
+// go mate <ms> / go mate infinite を処理する。
+// engine が MateEngine を実装していなければ "checkmate notimplemented" を
+// 即座に送出する。実装していれば goroutine で GetMate を実行し、
+// 詰みあり: "checkmate <手順>"、詰みなし: "checkmate nomate"、
+// タイムアウト/キャンセル: "checkmate timeout" を送出する。
+// 探索中の stop は通常探索と同様にキャンセルとして扱われる
+// (usi.cancel/usi.searching を共有しているため)。
+func (usi *USI) mateCommand(args []string) error {
+
+	usi.stopSearch()
+
+	me, ok := usi.engine.(MateEngine)
+	if !ok {
+		usi.sender <- "checkmate notimplemented"
+		return nil
+	}
+
+	if usi.nowBoard == nil {
+		return fmt.Errorf("go mate error: position is not set")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	if len(args) > 0 && args[0] != "infinite" {
+		if ms, err := strconv.ParseInt(args[0], 10, 64); err == nil && ms > 0 {
+			ctx, cancel = context.WithTimeout(ctx, time.Duration(ms)*time.Millisecond)
+		}
+	}
+
+	usi.mu.Lock()
+	usi.cancel = cancel
+	usi.searching = true
+	usi.mu.Unlock()
+
+	board := usi.nowBoard
+
+	go func() {
+		defer func() {
+			usi.mu.Lock()
+			usi.searching = false
+			usi.cancel = nil
+			usi.mu.Unlock()
+			cancel()
+		}()
+
+		moves, err := me.GetMate(ctx, board)
+
+		if err != nil {
+			slog.Error(fmt.Sprintf("GetMate error: %v", err))
+			usi.sender <- "checkmate timeout"
+			return
+		}
+
+		if len(moves) == 0 {
+			usi.sender <- "checkmate nomate"
+			return
+		}
+
+		strs := make([]string, 0, len(moves))
+		for _, m := range moves {
+			if m == nil {
+				continue
+			}
+			strs = append(strs, m.String())
+		}
+		usi.sender <- "checkmate " + strings.Join(strs, " ")
+	}()
+
+	return nil
+}
+
+// info 行を USI プロトコル形式にフォーマットする。
+func formatInfo(info Info) string {
+
+	pvStrs := make([]string, 0, len(info.PV))
+	for _, a := range info.PV {
+		if a == nil {
+			continue
+		}
+		pvStrs = append(pvStrs, a.String())
+	}
+
+	buf := fmt.Sprintf("info depth %d score cp %d nodes %d", info.Depth, info.ScoreCP, info.Nodes)
+	if len(pvStrs) > 0 {
+		buf += " pv " + strings.Join(pvStrs, " ")
+	}
+	return buf
+}
+
+// go btime/wtime/byoyomi/binc/winc をパースし、簡易な時間配分で
+// Movetime を計算する: 持ち時間/40 + byoyomiの80% + increment。
+// パースできる時間指定が無ければ 0(無制限)を返す。
+func parseGoTime(args []string, turn TurnType) time.Duration {
+
+	var btime, wtime, byoyomi, binc, winc int64
+	for i := 0; i < len(args)-1; i++ {
+		v, err := strconv.ParseInt(args[i+1], 10, 64)
+		if err != nil {
+			continue
+		}
+		switch args[i] {
+		case "btime":
+			btime = v
+		case "wtime":
+			wtime = v
+		case "byoyomi":
+			byoyomi = v
+		case "binc":
+			binc = v
+		case "winc":
+			winc = v
+		}
+	}
+
+	var own, inc int64
+	if turn == TurnBlack {
+		own = btime
+		inc = binc
+	} else {
+		own = wtime
+		inc = winc
+	}
+
+	if own <= 0 && byoyomi <= 0 {
+		return 0
+	}
+
+	ms := own/40 + (byoyomi*80)/100 + inc
+	if ms <= 0 {
+		return 0
+	}
+
+	return time.Duration(ms) * time.Millisecond
 }

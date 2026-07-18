@@ -104,3 +104,16 @@ func BenchmarkPerft2(b *testing.B) {
 		perft(board, 2)
 	}
 }
+
+// BenchmarkPerft3: 合法手生成の総合速度計測(初期局面 depth3)。
+// StageE(局面履歴・千日手判定の追加)によるコスト増を追跡するために追加。
+func BenchmarkPerft3(b *testing.B) {
+	board, err := shogi.NewBoard(shogi.StartPos)
+	if err != nil {
+		b.Fatalf("NewBoard() error: %v", err)
+	}
+	b.ResetTimer()
+	for idx := 0; idx < b.N; idx++ {
+		perft(board, 3)
+	}
+}
