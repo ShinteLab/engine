@@ -2,7 +2,6 @@ package shogi
 
 import (
 	"fmt"
-	"log/slog"
 	"strings"
 )
 
@@ -18,10 +17,13 @@ type Piece struct {
 
 // 文字列から駒を作成
 func NewPieceFromString(p string) *Piece {
+
 	var inst Piece
 	inst.source = p
 	inst.typ, inst.turn = NewPieceType(p[0])
+
 	if len(p) >= 2 {
+		inst.typ = inst.typ.Growth()
 		inst.growth = true
 	}
 	return &inst
@@ -37,6 +39,14 @@ func NewPieceFromType(typ PieceType, turn TurnType) *Piece {
 	inst.source = inst.createSource()
 
 	return &inst
+}
+
+func (p *Piece) Type() PieceType {
+	return p.typ
+}
+
+func (p *Piece) String() string {
+	return fmt.Sprintf("[%v][%s]", p.pos, p.Mark())
 }
 
 // 初期化後に呼び出す
@@ -233,25 +243,37 @@ func (t PieceType) IsGrowth() bool {
 }
 
 // 持っている駒を表現
-type Pieces [7]int
+// 解析用に王も入れておく
+type Pieces [8]int
 
 func NewPieces() Pieces {
-	var v [7]int
+	var v [8]int
 	return v
 }
 
 func (p Pieces) copy() Pieces {
-	var dst Pieces
-	for idx, v := range p {
-		dst[idx] = v
-	}
-	return dst
+	return p
 }
 
 func (p *Pieces) add(t PieceType) {
 	b := t.Base()
-	slog.Debug(fmt.Sprintf("Add[%v]", b))
 	p[b]++
+}
+
+func (p *Pieces) remove(t PieceType) {
+	b := t.Base()
+	p[b]--
+}
+
+func (p *Pieces) all() []PieceType {
+	var rtn []PieceType
+	//持っている場合追加
+	for idx, v := range p {
+		if v > 0 {
+			rtn = append(rtn, PieceType(idx))
+		}
+	}
+	return rtn
 }
 
 func (p Pieces) String() string {

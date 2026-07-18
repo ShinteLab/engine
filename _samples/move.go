@@ -19,15 +19,19 @@ func (e *MoveEngine) GetName() string {
 	return "1st move Engine"
 }
 
+func (e *MoveEngine) GetVersion() string {
+	return "0.0.0"
+}
+
 func (e *MoveEngine) GetAuthor() string {
 	return "secondarykey"
 }
 
 func (e *MoveEngine) GetBest(b *shogi.Board) (*shogi.Action, error) {
 
-	pos := b.Can(true)
+	pos := b.Candidate()
 	if len(pos) == 0 {
-		return shogi.NewAction(shogi.Resign), nil
+		return shogi.ResignAction(), nil
 	}
 
 	n := rand.Intn(len(pos))

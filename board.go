@@ -3,89 +3,138 @@ package shogi
 import (
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
+
+	"golang.org/x/xerrors"
 )
-
-type TurnType string
-
-const (
-	TurnBlack TurnType = "b"
-	TurnWhite TurnType = "w"
-)
-
-func (t TurnType) Next() TurnType {
-	if t == TurnBlack {
-		return TurnWhite
-	}
-	return TurnBlack
-}
-
-func (t TurnType) Index() int {
-	if t == TurnBlack {
-		return 0
-	}
-	return 1
-}
 
 // 盤面
 type Board struct {
-	startSFEN string
-	turn      TurnType
+	turn TurnType
+	num  int
 
 	camps [2]*CampBoard
+
+	hash uint64
 }
 
 const (
-	SFENLine = "/"
+	StartPos     = "startpos"
+	SFEN         = "sfen"
+	StartPosSFEN = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL"
+	SFENLine     = "/"
+	Moves        = "moves"
+	None         = "-" //手駒
 )
 
-func NewBoard(sfen string) (*Board, error) {
-
+func initBoard() *Board {
 	var b Board
-	b.startSFEN = sfen
-
 	b.turn = TurnBlack
-
+	b.num = 1
 	b.camps[0] = NewCampBoard(TurnBlack)
 	b.camps[1] = NewCampBoard(TurnWhite)
 	//相手を設定
-	b.camps[0].setOpposite(b.camps[1])
+	b.camps[0].setEnemy(b.camps[1])
+	return &b
+}
 
-	err := b.parseSFEN()
+func NewBoard(line string) (*Board, error) {
+
+	//後手で相手が指した時
+	//[startpos moves 8g8f]"
+	//上手で指す時
+	//[sfen lnsgkgsnl/7b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1]"
+	//並列処理を意識した作りにする
+	//[lnsgkgsnl/7b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1 moves 8c8d]"
+	//position startpos moves 6g6f 3c3d 5g5f
+	b := initBoard()
+
+	args := strings.Split(line, " ")
+	leng := len(args)
+	sfen := ""
+
+	idx := 0
+	t := args[idx]
+
+	if t == StartPos {
+		sfen = StartPosSFEN
+	} else if t == SFEN {
+		idx++
+		sfen = args[idx]
+	} else {
+		return nil, fmt.Errorf("sfen parse error[%s]", line)
+	}
+
+	err := b.parse(sfen)
 	if err != nil {
 		return nil, err
 	}
-	return &b, nil
+
+	idx++
+
+	for {
+
+		if idx >= leng {
+			break
+		}
+
+		next := args[idx]
+		if next != Moves {
+
+			t := next
+			h := args[idx+1]
+			n := args[idx+2]
+
+			err = b.SetStatus(t, h, n)
+			if err != nil {
+				return nil, xerrors.Errorf("SetStatus() error: %w", err)
+			}
+			idx = idx + 3
+		} else {
+			idx++
+			ms := args[idx:]
+			//動作させる
+			for _, mov := range ms {
+				b.Action(NewAction(mov))
+				idx++
+			}
+			break
+		}
+	}
+
+	//パース完了時点でのハッシュを計算しておく
+	b.hash = b.computeHash()
+
+	return b, nil
 }
 
 func (b *Board) Copy() *Board {
 
 	var dst Board
-	dst.startSFEN = b.startSFEN
 	dst.turn = b.turn
+	dst.hash = b.hash
+
 	dst.camps[0] = b.camps[0].copy()
 	dst.camps[1] = b.camps[1].copy()
-	dst.camps[0].setOpposite(dst.camps[1])
+	dst.camps[0].setEnemy(dst.camps[1])
 
 	return &dst
 }
 
 // 座標位置にピースを配置
-func (b *Board) set(x, y int, piece string) error {
-	p := NewPieceFromString(piece)
+func (b *Board) set(x, y int, p *Piece) error {
 	p.set(x, y)
 	b.camps[p.turn.Index()].set(x, y, p.typ)
 	return nil
 }
 
-func (b *Board) parseSFEN() error {
+func (b *Board) parse(sfen string) error {
 
-	s := strings.Split(b.startSFEN, SFENLine)
+	s := strings.Split(sfen, SFENLine)
 	if len(s) != 9 {
-		return fmt.Errorf("SFEN parse error")
+		return fmt.Errorf("SFEN parse error:%s", sfen)
 	}
-
-	//TODO 成の考慮がない
 
 	for y := 1; y <= 9; y++ {
 
@@ -93,28 +142,116 @@ func (b *Board) parseSFEN() error {
 		x := 0
 
 		for idx := 0; idx < len(line); idx++ {
+
 			c := line[idx]
+
+			//空白の場合
 			if c >= '0' && c <= '9' {
+				//設定位置を追加
 				x = x + (int(c) - 48)
 			} else {
-				b.set(x+1, y, string(c))
+
+				p := ""
+				if c == '+' {
+					p = "+"
+					idx++
+					c = line[idx]
+				}
+
+				piece := NewPieceFromString(string(c) + p)
+				b.set(x+1, y, piece)
 				x++
 			}
 		}
 		if x != 9 {
-			return fmt.Errorf("SFEN parse error")
+			return fmt.Errorf("SFEN parse error:%d", x)
 		}
 	}
 	return nil
 }
 
-func (b *Board) setTurn(t TurnType) {
-	b.turn = t
+// ターン 持ち駒 ターン数の文字列
+func (b *Board) SetStatus(t string, h string, n string) error {
+	b.turn = TurnType(t)
+	b.setHas(h)
+	var err error
+	b.num, err = strconv.Atoi(n)
+	if err != nil {
+		slog.Error(fmt.Sprintf("Turn number Cast error:[%s]", n))
+		b.num = 1
+	}
+	return nil
 }
 
-func (b *Board) setHave(buf string) {
-	//TODO 初期設定で駒を持たせる
-	slog.Error(fmt.Sprintf("Not Implemented"))
+// 持ちゴマを文字列から設定
+func (b *Board) setHas(h string) bool {
+	for idx := 0; idx < len(h); idx++ {
+
+		numBuf := ""
+		var c byte
+		for {
+			c = h[idx]
+			if c >= '0' && c <= '9' {
+				numBuf += string(c)
+				idx++
+			} else {
+				c = h[idx]
+				if numBuf == "" {
+					numBuf = "1"
+				}
+				break
+			}
+		}
+
+		if c == '-' {
+			break
+		}
+
+		num, _ := strconv.Atoi(numBuf)
+
+		p := NewPieceFromString(string(c))
+		for idx := 1; idx <= num; idx++ {
+			b.camps[p.turn.Index()].has.add(p.typ)
+		}
+	}
+	return true
+}
+
+// 現在の手番
+func (b *Board) Turn() TurnType {
+	return b.turn
+}
+
+// 手番 t 側の盤上駒価値 + 持駒価値の合計(探索の評価関数向け)。
+// 王も Value() に含めた単純な差分評価用途(詰み検出は探索側で行う)。
+func (b *Board) Material(t TurnType) int {
+
+	camp := b.camps[t.Index()]
+	sum := 0
+
+	for pt := 0; pt < len(camp.typBoards); pt++ {
+		bit := &camp.typBoards[pt]
+		if bit.isZero() {
+			continue
+		}
+		v := PieceType(pt).Value()
+		bit.forEach(func(sq int) {
+			sum += v
+		})
+	}
+
+	for pt, cnt := range camp.has {
+		if cnt > 0 {
+			sum += PieceType(pt).Value() * cnt
+		}
+	}
+
+	return sum
+}
+
+// 現在の手番が王手されているか(IsCheck(Turn()) の別名)
+func (b *Board) InCheck() bool {
+	return b.IsCheck(b.turn)
 }
 
 // 動作させる
@@ -126,54 +263,127 @@ func (b *Board) Action(a *Action) bool {
 		return false
 	}
 	b.turn = b.turn.Next()
+	b.num++
+
+	//盤面変更後のハッシュを再計算する。
+	//差分更新ではなく全再計算だが、typBoards の forEach で盤上駒数十個分の
+	//XOR で済むため Action あたり数百ns程度に収まり、探索の Copy+Candidate
+	//コスト(µs級)に比べ十分小さい。真の差分更新は将来最適化とする。
+	b.hash = b.computeHash()
 
 	return true
 }
 
-// 動かせる箇所を取得
-func (b *Board) Can(check bool) []*Action {
-	now := b.camps[b.turn.Index()]
-	actions := now.can()
-	if !check {
-		return actions
-	}
-
-	return b.filter(actions)
+// 現在の局面のハッシュ値(Zobrist ハッシュ)
+func (b *Board) Hash() uint64 {
+	return b.hash
 }
 
-// 次の手の後に王手がある場合、阻止する手のみ羅列
-func (b *Board) filter(actions []*Action) []*Action {
+// 局面全体からハッシュ値を再計算する
+func (b *Board) computeHash() uint64 {
 
-	var newActions []*Action
+	var h uint64
 
-	slog.Info(fmt.Sprintf("can:[%d]", len(actions)))
-	//全操作を設定
-	for _, a := range actions {
+	for ti := 0; ti < 2; ti++ {
+		camp := b.camps[ti]
 
-		n := b.Copy()
-		b.Action(a)
+		for pt := 0; pt < len(camp.typBoards); pt++ {
+			bit := &camp.typBoards[pt]
+			if bit.isZero() {
+				continue
+			}
+			bit.forEach(func(sq int) {
+				h ^= zobristPiece[ti][pt][sq]
+			})
+		}
 
-		//次の手番の可能性のある操作をすべて取得
-		n_actions := n.Can(false)
-		check := false
+		for pt, cnt := range camp.has {
+			if cnt <= 0 {
+				continue
+			}
+			c := cnt
+			if c >= len(zobristHand[ti][pt]) {
+				c = len(zobristHand[ti][pt]) - 1
+			}
+			h ^= zobristHand[ti][pt][c]
+		}
+	}
 
-		for _, na := range n_actions {
-			if na.enemy != nil {
-				//取れてる
-				if na.enemy.typ == King {
-					check = true
-					break
+	if b.turn == TurnWhite {
+		h ^= zobristTurn
+	}
+
+	return h
+}
+
+// 手番 t の玉が相手の利きに入っているか(王手されているか)。
+// 玉が盤上にない場合(テスト用局面等)は false を返す。
+func (b *Board) IsCheck(t TurnType) bool {
+
+	camp := b.camps[t.Index()]
+	king := camp.typBoards[King]
+	if king.isZero() {
+		return false
+	}
+
+	enemy := camp.enemy
+	occ := camp.board
+	occ.or(&enemy.board)
+
+	attackers := enemy.attackAll(&occ)
+	attackers.and(&king)
+	return !attackers.isZero()
+}
+
+// 擬似合法手(王手放置・自殺手・打ち歩詰めを含みうる)。
+// テスト・内部使用向け。
+func (b *Board) pseudoCandidate() []*Action {
+	now := b.camps[b.turn.Index()]
+	return now.pseudoCandidate()
+}
+
+// 合法手化の本体。checkUchifuzume が false の場合は打ち歩詰め判定を省略する
+// (打ち歩詰め判定が相手の合法手数を数えるために自身を再帰呼び出しするので、
+//
+//	無限再帰を避けるためこの1段だけ判定を止める)。
+func (b *Board) legalCandidate(checkUchifuzume bool) []*Action {
+
+	moves := b.pseudoCandidate()
+
+	legal := make([]*Action, 0, len(moves))
+	for _, a := range moves {
+
+		nb := b.Copy()
+		if !nb.Action(a) {
+			//現状は発生しないはずだがガード
+			continue
+		}
+
+		//動かした側(自分)の玉が相手の利きに入る手(王手放置・自殺手)は除外
+		if nb.IsCheck(b.turn) {
+			continue
+		}
+
+		//打ち歩詰めの除外
+		if checkUchifuzume && a.Hit() && a.HitType() == Pawn {
+			if nb.IsCheck(nb.turn) {
+				//打った歩によって王手になっている場合、相手に合法手が
+				//1つも無ければ打ち歩詰めなので除外する。
+				//ここでの合法手判定は打ち歩詰め判定を含めない(無限再帰防止)。
+				if len(nb.legalCandidate(false)) == 0 {
+					continue
 				}
 			}
 		}
 
-		if !check {
-			newActions = append(newActions, a)
-		}
+		legal = append(legal, a)
 	}
+	return legal
+}
 
-	slog.Info(fmt.Sprintf("after can:[%d]", len(newActions)))
-	return newActions
+// 動かせる箇所を取得(合法手のみ)
+func (b *Board) Candidate() []*Action {
+	return b.legalCandidate(true)
 }
 
 // 座標にある駒を取得
@@ -197,7 +407,7 @@ func (b *Board) GoString() string {
 		white = "*"
 	}
 
-	builder.WriteString(fmt.Sprintf(" |  1  2  3  4  5  6  7  8  9  |\n"))
+	builder.WriteString(fmt.Sprintf(" |  9  8  7  6  5  4  3  2  1  |\n"))
 	builder.WriteString(fmt.Sprintf("-------------------------------|\n"))
 
 	for y := 1; y <= 9; y++ {

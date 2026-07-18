@@ -20,6 +20,9 @@ func parsePos(buf string) Pos {
 
 	//49 - 57 1-9
 	x := buf[0] - 48
+	//座標系とは逆
+	x = 10 - x
+
 	//97 - 105 a-i
 	y := buf[1] - 96
 	return newPos(int(x), int(y))
@@ -30,7 +33,10 @@ func (p Pos) XY() (int, int) {
 }
 
 func (p Pos) String() string {
-	x := byte(p[0] + 48)
+
+	//送信系は逆になる
+	x := byte((10 - p[0]) + 48)
+
 	y := byte(p[1] + 96)
 	return string(x) + string(y)
 }

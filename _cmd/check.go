@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log/slog"
 	"os"
 
 	"shogi"
@@ -8,8 +9,8 @@ import (
 )
 
 func main() {
-	var e samples.GiveupEngine
-	err := shogi.Start(&e)
+	var e samples.CheckmateEngine
+	err := shogi.StartWithLevel(&e, slog.LevelDebug)
 	if err != nil {
 		os.Exit(1)
 	}

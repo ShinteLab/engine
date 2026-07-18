@@ -14,7 +14,7 @@ func StartWithLevel(engine Engine, lv slog.Level) error {
 }
 
 func StartWithLogFile(engine Engine, name string, lv slog.Level) error {
-	defer SetFileLogger(lv, name).Close()
+	defer SetFileLogger(lv, name, false).Close()
 	usi := NewUSI(os.Stdout, os.Stdin, engine)
 	return usi.Start()
 }

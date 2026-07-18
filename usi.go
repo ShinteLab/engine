@@ -3,6 +3,7 @@ package shogi
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +16,7 @@ type USI struct {
 	out  io.Writer
 	recv *bufio.Scanner
 
+	sender chan string
 	engine Engine
 
 	nowBoard *Board
@@ -24,20 +26,56 @@ func NewUSI(out io.Writer, in io.Reader, en Engine) *USI {
 	var inst USI
 	inst.out = out
 
+	inst.sender = make(chan string)
+
 	inst.recv = bufio.NewScanner(in)
 	inst.engine = en
 	return &inst
 }
 
+var Quit = fmt.Errorf("quit")
+
 func (usi *USI) Start() error {
+
 	slog.Info("usi start")
-	for {
-		err := usi.Wait()
+
+	quit := make(chan error)
+
+	defer func() {
+		err := recover()
 		if err != nil {
-			slog.Error(fmt.Sprintf("%+v", err))
-			return xerrors.Errorf("Wait() error: %w", err)
+			slog.Error("Panic:\n%+v", err)
+		}
+	}()
+
+	go func() {
+		for {
+			err := usi.Wait()
+			if err != nil {
+				quit <- err
+			}
+		}
+	}()
+
+	//コマンド送信側に送る
+	for {
+		select {
+		case cmd := <-usi.sender:
+			err := usi.sendCommand(cmd)
+			if err != nil {
+				quit <- err
+			}
+		case err := <-quit:
+			if errors.Is(err, Quit) {
+				return nil
+			} else if err != nil {
+				slog.Error(fmt.Sprintf("%+v", err))
+				return xerrors.Errorf("Wait() error: %w", err)
+			}
+			return nil
 		}
 	}
+
 	return nil
 }
 
@@ -124,23 +162,19 @@ func (usi *USI) wait() (string, error) {
 
 func (usi *USI) sendInformation() error {
 
-	usi.sendCommand("id name " + usi.engine.GetName())
-	usi.sendCommand("id author " + usi.engine.GetAuthor())
-	usi.sendCommand("usiok")
+	usi.sender <- "id name " + usi.engine.GetName()
+	usi.sender <- "id author " + usi.engine.GetAuthor()
+	usi.sender <- "usiok"
 
 	return nil
 }
 
 func (usi *USI) sendReady() error {
-	return usi.sendCommand("readyok")
+	usi.sender <- "readyok"
+	return nil
 }
 
-const (
-	FirstPosSFEN = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL"
-	StartPos     = "startpos"
-	Moves        = "moves"
-	None         = "-" //手駒
-)
+const ()
 
 func (usi *USI) setBoard(args []string) error {
 
@@ -148,59 +182,11 @@ func (usi *USI) setBoard(args []string) error {
 	if leng == 0 {
 		return fmt.Errorf("position arguments error[zero]")
 	}
-
-	t := args[0]
-	idx := 1
-	sfen := ""
-
-	if t == "sfen" {
-		if leng <= 1 {
-			return fmt.Errorf("position arguments error[sfen]")
-		}
-		sfen = args[1]
-		idx = 2
-	} else if t == StartPos {
-		sfen = FirstPosSFEN
-	}
-
-	//後手で相手が指した時
-	//msg="receive command[position startpos moves 8g8f]"
-	//上手で指す時
-	//msg="receive command[position sfen lnsgkgsnl/7b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1]"
-	//下手で相手が指した時
-	//"USER> [position sfen lnsgkgsnl/7b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1 moves 8c8d]"
-	//"USER> [position startpos moves 6g6f 3c3d 5g5f]"
-
-	nowBoard, err := NewBoard(sfen)
+	var err error
+	usi.nowBoard, err = NewBoard(strings.Join(args, " "))
 	if err != nil {
-		return xerrors.Errorf("NewBoard() error: %w", err)
+		return fmt.Errorf("SFEN parse error: %w", err)
 	}
-
-	if leng > idx {
-		next := args[idx]
-		if next != Moves {
-			if next == "w" {
-				nowBoard.setTurn(TurnWhite)
-			} else if next != "b" {
-				return fmt.Errorf("position arguments error[turn]")
-			}
-
-			pieces := args[idx+1]
-			nowBoard.setHave(pieces)
-			idx = idx + 3
-		}
-
-		next = args[idx]
-		if next == Moves {
-			idx++
-			ms := args[idx:]
-			for _, mov := range ms {
-				nowBoard.Action(NewAction(mov))
-			}
-		}
-	}
-
-	usi.nowBoard = nowBoard
 	return nil
 }
 
@@ -210,9 +196,14 @@ const (
 
 func (usi *USI) sendBest() error {
 
+	slog.Info("Call GetBest()")
+
 	action, err := usi.engine.GetBest(usi.nowBoard)
 	if err != nil {
 		return err
 	}
-	return usi.sendCommand("bestmove " + action.String())
+	slog.Info(fmt.Sprintf("Ans:%v", action))
+
+	usi.sender <- "bestmove " + action.String()
+	return nil
 }

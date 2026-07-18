@@ -17,7 +17,7 @@ type closer struct {
 	w io.Closer
 }
 
-func SetFileLogger(lv slog.Level, name string) *closer {
+func SetFileLogger(lv slog.Level, name string, d bool) *closer {
 
 	wk := name
 	if strings.Index(wk, "%d") != -1 {
