@@ -27,10 +27,10 @@ func (e *ThinkEngine) GetAuthor() string {
 
 // StageD: 置換表(TT)を有効化。depth4 でも単一スレッド+TTで
 // 数十ms程度で返る(ベンチ計測済み)ため depth を 3->4 に引き上げた。
-// Parallel(ルート並列)は TT と併用すると反復深化の各深さ×ルート手数分の
-// TT インスタンスが goroutine ごとに複製され、depth4 で数GB級のメモリ
-// 確保が発生し単一スレッドより遅くなることを計測で確認したため、
-// 共有TTが無い現状の設計では Parallel=false + TT=true を採用する。
+// StageK: 置換表がロックフリー(xor-verify)方式で共有可能になり、
+// Lazy SMP(Parallel=true)が全workerで共有TT1枚のみを使うようになった
+// ため、StageD時点の「Parallel+TTでGB級メモリ」の問題は解消された。
+// Workers:0(自動: runtime.NumCPU()と8の小さい方)で並列探索を有効化する。
 const thinkDepth = 4
 
 func (e *ThinkEngine) GetBest(b *shogi.Board) (*shogi.Action, error) {
@@ -43,7 +43,7 @@ func (e *ThinkEngine) GetBestContext(ctx context.Context, b *shogi.Board, info f
 	e.depth = thinkDepth
 	slog.Info(fmt.Sprintf("Think[%d]", e.depth))
 
-	opt := search.Options{Depth: e.depth, Parallel: false, TT: true}
+	opt := search.Options{Depth: e.depth, Parallel: true, Workers: 0, TT: true}
 	if info != nil {
 		opt.Info = func(si search.Info) {
 			info(shogi.Info{

@@ -54,30 +54,54 @@ func (b *CampBoard) setEnemy(e *CampBoard) {
 	e.enemy = b
 }
 
-// 動作させる
-func (b *CampBoard) action(m *Action) bool {
+// action() が「何をしたか」を表す情報(Stage I: DoMove/UndoMove用)
+type moveInfo struct {
+	//移動前に盤上にあった駒種(打ちの場合はPieceTypeNotFound)
+	movedType PieceType
+	//移動後に盤上に置かれた駒種(成りが適用された場合は成り後の種別)
+	placedType PieceType
+	//捕獲した敵駒の種別(無ければPieceTypeNotFound)
+	capturedType PieceType
+}
+
+// 動作させる(情報付き)。動いた駒種・置かれた駒種・捕獲した駒種を返す。
+func (b *CampBoard) actionInfo(m *Action) (moveInfo, bool) {
+
+	info := moveInfo{movedType: PieceTypeNotFound, capturedType: PieceTypeNotFound}
 
 	//元位置の駒を取得してを削除
-	p, err := b.setMove(m)
+	p, movedType, placedType, err := b.setMoveInfo(m)
 	if err != nil {
 		slog.Error(fmt.Sprintf("setMove() error: %v", err))
-		return false
+		return info, false
 	}
+	info.movedType = movedType
+	info.placedType = placedType
 
 	//相手位置に居れば削除し、自分に追加
-	f, err := b.getEnemy(p)
+	f, capturedType, err := b.getEnemyInfo(p)
 	if err != nil {
 		slog.Error(fmt.Sprintf("getEnemy() error: %v", err))
-		return false
+		return info, false
 	}
 
 	//打ちで相手位置にいた場合
 	if f && m.Hit() {
 		slog.Error(fmt.Sprintf("Hit and Enemy error: %v", err))
-		return false
+		return info, false
 	}
 
-	return true
+	if f {
+		info.capturedType = capturedType
+	}
+
+	return info, true
+}
+
+// 動作させる
+func (b *CampBoard) action(m *Action) bool {
+	_, ok := b.actionInfo(m)
+	return ok
 }
 
 // 盤面に設定
@@ -86,15 +110,18 @@ func (b *CampBoard) set(x, y int, t PieceType) {
 	b.board.set(x, y)
 }
 
-// 駒を動かす
-func (b *CampBoard) setMove(action *Action) (Pos, error) {
+// 駒を動かす(情報付き)。戻り値は (移動先, 移動前の駒種(打ちならNotFound),
+// 置かれた駒種(成りが適用されればその後の種別), error)。
+func (b *CampBoard) setMoveInfo(action *Action) (Pos, PieceType, PieceType, error) {
 
 	var t PieceType
+	movedType := PieceTypeNotFound
 	if !action.Hit() {
 		t = b.clear(action.before)
 		if t == PieceTypeNotFound {
-			return PosNone, fmt.Errorf("NotFound [%s]", action.before)
+			return PosNone, PieceTypeNotFound, PieceTypeNotFound, fmt.Errorf("NotFound [%s]", action.before)
 		}
+		movedType = t
 	}
 
 	x1, y1 := action.after.XY()
@@ -108,7 +135,7 @@ func (b *CampBoard) setMove(action *Action) (Pos, error) {
 				slog.Error(fmt.Sprintf("growth error[%v][%v]", t, action))
 			}
 		} else {
-			return PosNone, fmt.Errorf("Growth error[%s]", action)
+			return PosNone, movedType, PieceTypeNotFound, fmt.Errorf("Growth error[%s]", action)
 		}
 	} else if action.Hit() {
 		// タイプを取得
@@ -121,7 +148,7 @@ func (b *CampBoard) setMove(action *Action) (Pos, error) {
 	b.board.set(x1, y1)
 
 	//移動位置を返す
-	return action.after, nil
+	return action.after, movedType, t, nil
 }
 
 // 駒を消す
@@ -140,15 +167,14 @@ func (b *CampBoard) clear(p Pos) PieceType {
 	return t
 }
 
-// 相手から駒を取る
-func (b *CampBoard) getEnemy(p Pos) (bool, error) {
-	is := false
+// 相手から駒を取る(情報付き)。戻り値は (捕獲したか, 捕獲した駒種, error)。
+func (b *CampBoard) getEnemyInfo(p Pos) (bool, PieceType, error) {
 	t := b.enemy.clear(p)
-	if t != PieceTypeNotFound {
+	is := t != PieceTypeNotFound
+	if is {
 		b.has.add(t)
-		is = true
 	}
-	return is, nil
+	return is, t, nil
 }
 
 // 動作できる箇所を返す(擬似合法手。王手放置・自殺手・打ち歩詰めを含みうる)

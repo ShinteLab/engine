@@ -6,7 +6,8 @@ import (
 )
 
 // 合法手生成(Board.Candidate())の正しさを検証する perft。
-// depth 0 で 1 を返し、各深さで Candidate() の手を Copy+Action して再帰する。
+// depth 0 で 1 を返し、各深さで Candidate() の手を DoMove/UndoMove して
+// 単一の Board を掘り下げながら再帰する(Stage I: make/unmake化)。
 func perft(b *shogi.Board, depth int) int {
 	if depth == 0 {
 		return 1
@@ -19,11 +20,12 @@ func perft(b *shogi.Board, depth int) int {
 
 	sum := 0
 	for _, a := range actions {
-		nb := b.Copy()
-		if !nb.Action(a) {
+		u, ok := b.DoMove(a)
+		if !ok {
 			continue
 		}
-		sum += perft(nb, depth-1)
+		sum += perft(b, depth-1)
+		b.UndoMove(u)
 	}
 	return sum
 }
@@ -33,11 +35,12 @@ func perftDivide(b *shogi.Board, depth int) map[string]int {
 	result := make(map[string]int)
 	actions := b.Candidate()
 	for _, a := range actions {
-		nb := b.Copy()
-		if !nb.Action(a) {
+		u, ok := b.DoMove(a)
+		if !ok {
 			continue
 		}
-		result[a.String()] = perft(nb, depth-1)
+		result[a.String()] = perft(b, depth-1)
+		b.UndoMove(u)
 	}
 	return result
 }
@@ -94,6 +97,8 @@ func TestPerftDepth4(t *testing.T) {
 }
 
 // BenchmarkPerft2: 合法手生成の総合速度計測(初期局面 depth2)
+// StageH: 112828 ns/op
+// StageI: perft自体をDoMove/UndoMove化。83844 ns/op
 func BenchmarkPerft2(b *testing.B) {
 	board, err := shogi.NewBoard(shogi.StartPos)
 	if err != nil {
@@ -107,6 +112,8 @@ func BenchmarkPerft2(b *testing.B) {
 
 // BenchmarkPerft3: 合法手生成の総合速度計測(初期局面 depth3)。
 // StageE(局面履歴・千日手判定の追加)によるコスト増を追跡するために追加。
+// StageH: 4003449 ns/op
+// StageI: perft自体をDoMove/UndoMove化。2699573 ns/op
 func BenchmarkPerft3(b *testing.B) {
 	board, err := shogi.NewBoard(shogi.StartPos)
 	if err != nil {

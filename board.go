@@ -306,6 +306,24 @@ func (b *Board) InCheck() bool {
 	return b.IsCheck(b.turn)
 }
 
+// 手番 t 側の各駒の位置を列挙する(PST等の位置評価向け)。
+// sq は squareOf(x,y) と同じマス番号(0..80, (y-1)*9+(x-1))。
+func (b *Board) PieceSquares(t TurnType, fn func(pt PieceType, sq int)) {
+
+	camp := b.camps[t.Index()]
+
+	for pt := 0; pt < len(camp.typBoards); pt++ {
+		bit := &camp.typBoards[pt]
+		if bit.isZero() {
+			continue
+		}
+		pieceType := PieceType(pt)
+		bit.forEach(func(sq int) {
+			fn(pieceType, sq)
+		})
+	}
+}
+
 // 盤面への適用のみを行う共通部。手番・手数の更新のみで、
 // hash再計算・履歴追記は行わない。
 func (b *Board) actionCore(a *Action) bool {
@@ -346,6 +364,139 @@ func (b *Board) Action(a *Action) bool {
 // legalCandidate() 内の合法性フィルタ(IsCheck 判定用の使い捨てコピー)専用。
 func (b *Board) actionLite(a *Action) bool {
 	return b.actionCore(a)
+}
+
+// DoMove/UndoMove の復元に必要な情報。
+type Undo struct {
+	action *Action
+
+	movedType    PieceType
+	placedType   PieceType
+	capturedType PieceType
+
+	prevHash       uint64
+	prevTurn       TurnType
+	prevNum        int
+	prevHistoryLen int
+}
+
+// 手を適用し、UndoMove で完全に元へ戻すための Undo を返す(単一 Board を
+// 掘り下げる探索向け)。Zobrist ハッシュは全再計算ではなく差分更新する。
+// 失敗時は (Undo{}, false) を返し、盤面は変更しない
+// (actionInfo が false を返した時点でCampBoard側は既に一部変更している
+//  可能性があるが、これは既存 Action()/actionCore と同じ制約であり
+//  Stage I で新たに導入した挙動ではない)。
+func (b *Board) DoMove(a *Action) (Undo, bool) {
+
+	var u Undo
+	u.action = a
+	u.prevHash = b.hash
+	u.prevTurn = b.turn
+	u.prevNum = b.num
+	u.prevHistoryLen = len(b.history)
+
+	moverTurn := b.turn
+	own := b.camps[moverTurn.Index()]
+
+	info, ok := own.actionInfo(a)
+	if !ok {
+		return Undo{}, false
+	}
+	u.movedType = info.movedType
+	u.placedType = info.placedType
+	u.capturedType = info.capturedType
+
+	b.turn = b.turn.Next()
+	b.num++
+
+	moverIdx := moverTurn.Index()
+	enemyIdx := b.turn.Index()
+
+	ax, ay := a.after.XY()
+	destSq := squareOf(ax, ay)
+
+	h := b.hash
+
+	if a.Hit() {
+		base := info.placedType.Base()
+		newCount := own.has[base]
+		oldCount := newCount + 1
+		h ^= handHashComponent(moverIdx, base, oldCount)
+		h ^= handHashComponent(moverIdx, base, newCount)
+
+		h ^= zobristPiece[moverIdx][info.placedType][destSq]
+	} else {
+		bx, by := a.before.XY()
+		srcSq := squareOf(bx, by)
+
+		h ^= zobristPiece[moverIdx][info.movedType][srcSq]
+		h ^= zobristPiece[moverIdx][info.placedType][destSq]
+	}
+
+	if info.capturedType != PieceTypeNotFound {
+		h ^= zobristPiece[enemyIdx][info.capturedType][destSq]
+
+		base := info.capturedType.Base()
+		newCount := own.has[base]
+		oldCount := newCount - 1
+		h ^= handHashComponent(moverIdx, base, oldCount)
+		h ^= handHashComponent(moverIdx, base, newCount)
+	}
+
+	//手番は必ず反転するので無条件にXORする(computeHash()の
+	//「Whiteならzobristturnを立てる」と同じ効果になるトグル)
+	h ^= zobristTurn
+
+	b.hash = h
+
+	b.history = append(b.history, b.hash)
+	b.checkHistory = append(b.checkHistory, b.IsCheck(b.turn))
+
+	return u, true
+}
+
+// DoMove で適用した手を完全に元へ戻す。
+func (b *Board) UndoMove(u Undo) {
+
+	a := u.action
+	mover := b.camps[u.prevTurn.Index()]
+
+	ax, ay := a.after.XY()
+
+	//移動先に置かれた駒(placedType)を取り除く
+	mover.typBoards[u.placedType].clear(ax, ay)
+	mover.board.clear(ax, ay)
+
+	if u.capturedType != PieceTypeNotFound {
+		//捕獲していた敵駒を盤に戻す
+		enemy := mover.enemy
+		enemy.typBoards[u.capturedType].set(ax, ay)
+		enemy.board.set(ax, ay)
+		//持駒から減らす(has.removeはBase()を使うのでcapturedTypeが
+		//成り駒でも正しく基本種のカウントから減る)
+		mover.has.remove(u.capturedType)
+	}
+
+	if a.Hit() {
+		//打った駒を持駒に戻す
+		mover.has.add(u.placedType)
+	} else {
+		//移動元に駒(movedType, 成り前)を戻す
+		bx, by := a.before.XY()
+		mover.typBoards[u.movedType].set(bx, by)
+		mover.board.set(bx, by)
+	}
+
+	b.turn = u.prevTurn
+	b.num = u.prevNum
+	b.hash = u.prevHash
+
+	//historyはappendしているだけなので長さを戻すだけでよい。
+	//スライスの容量は共有されたままだが、再DoMoveで上書きされるだけなので
+	//問題ない(このBoardの外に別途Copy()したhistoryはmake+copyで
+	//独立しているため影響を受けない)。
+	b.history = b.history[:u.prevHistoryLen]
+	b.checkHistory = b.checkHistory[:u.prevHistoryLen]
 }
 
 // 検証付きで手を適用する(GUI 等、信頼できない入力向け)。
@@ -445,11 +596,13 @@ func (b *Board) pseudoCandidate() []*Action {
 	return now.pseudoCandidate()
 }
 
-// 合法手化の本体。checkUchifuzume が false の場合は打ち歩詰め判定を省略する
+// 合法手化の本体(Stage H以前の実装。copyLite+actionLite+IsCheckを
+// 擬似合法手1手ごとに行う)。legal_diff_test.go の参照実装として残す。
+// checkUchifuzume が false の場合は打ち歩詰め判定を省略する
 // (打ち歩詰め判定が相手の合法手数を数えるために自身を再帰呼び出しするので、
 //
 //	無限再帰を避けるためこの1段だけ判定を止める)。
-func (b *Board) legalCandidate(checkUchifuzume bool) []*Action {
+func (b *Board) legalCandidateSlow(checkUchifuzume bool) []*Action {
 
 	moves := b.pseudoCandidate()
 
@@ -474,6 +627,44 @@ func (b *Board) legalCandidate(checkUchifuzume bool) []*Action {
 				//打った歩によって王手になっている場合、相手に合法手が
 				//1つも無ければ打ち歩詰めなので除外する。
 				//ここでの合法手判定は打ち歩詰め判定を含めない(無限再帰防止)。
+				if len(nb.legalCandidateSlow(false)) == 0 {
+					continue
+				}
+			}
+		}
+
+		legal = append(legal, a)
+	}
+	return legal
+}
+
+// 合法手化の本体(Stage H: ピン検出方式)。局面につき1回 legalInfo を
+// 計算し、各擬似合法手を軽量判定でふるいにかける。
+// 玉が盤上に無い(テスト用局面等)場合は legalCandidateSlow にフォールバックする。
+func (b *Board) legalCandidate(checkUchifuzume bool) []*Action {
+
+	own := b.camps[b.turn.Index()]
+	if own.typBoards[King].isZero() {
+		return b.legalCandidateSlow(checkUchifuzume)
+	}
+
+	moves := b.pseudoCandidate()
+	info := b.computeLegalInfo()
+
+	legal := make([]*Action, 0, len(moves))
+	for _, a := range moves {
+
+		if !info.isLegal(a) {
+			continue
+		}
+
+		//打ち歩詰めの除外(頻度が低いのでcopyLite経路を維持する)
+		if checkUchifuzume && a.Hit() && a.HitType() == Pawn {
+			nb := b.copyLite()
+			if !nb.actionLite(a) {
+				continue
+			}
+			if nb.IsCheck(nb.turn) {
 				if len(nb.legalCandidate(false)) == 0 {
 					continue
 				}

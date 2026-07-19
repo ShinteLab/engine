@@ -65,29 +65,33 @@ func mateOr(ctx context.Context, b *shogi.Board, depth int, nodes *int64) ([]*sh
 	actions := b.Candidate()
 	for _, a := range actions {
 
-		nb := b.Copy()
-		if !nb.Action(a) {
+		u, ok := b.DoMove(a)
+		if !ok {
 			continue
 		}
 
-		//王手になる手のみを試す(nb.Turn()は玉方の手番)
-		if !nb.IsCheck(nb.Turn()) {
+		//王手になる手のみを試す(b.Turn()は玉方の手番)
+		if !b.IsCheck(b.Turn()) {
+			b.UndoMove(u)
 			continue
 		}
 
-		defActions := nb.Candidate()
+		defActions := b.Candidate()
 		if len(defActions) == 0 {
 			//応手が無い = この手で即詰み
+			b.UndoMove(u)
 			return []*shogi.Action{a}, true
 		}
 
 		if depth == 1 {
 			//王手はしたが即詰みではなく、これ以上深さの余裕が無い
+			b.UndoMove(u)
 			continue
 		}
 
-		subMoves, ok := mateAnd(ctx, nb, depth-1, nodes)
-		if ok {
+		subMoves, ok2 := mateAnd(ctx, b, depth-1, nodes)
+		b.UndoMove(u)
+		if ok2 {
 			moves := make([]*shogi.Action, 0, len(subMoves)+1)
 			moves = append(moves, a)
 			moves = append(moves, subMoves...)
@@ -119,13 +123,15 @@ func mateAnd(ctx context.Context, b *shogi.Board, depth int, nodes *int64) ([]*s
 
 	for _, a := range actions {
 
-		nb := b.Copy()
-		if !nb.Action(a) {
+		u, ok := b.DoMove(a)
+		if !ok {
 			continue
 		}
 
-		subMoves, ok := mateOr(ctx, nb, depth-1, nodes)
-		if !ok {
+		subMoves, ok2 := mateOr(ctx, b, depth-1, nodes)
+		b.UndoMove(u)
+
+		if !ok2 {
 			//逃げ道が1つでもあれば詰みではない
 			return nil, false
 		}

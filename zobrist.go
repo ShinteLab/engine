@@ -29,3 +29,17 @@ func init() {
 
 	zobristTurn = r.Uint64()
 }
+
+// 持駒枚数cntに対応するハッシュ寄与分を返す。computeHash() と同じ規則
+// (cnt<=0のときは寄与0)に従う。Stage I の DoMove 差分更新で、
+// 持駒枚数が変化した際の XOR out/in に使う。
+func handHashComponent(ti int, base PieceType, cnt int) uint64 {
+	if cnt <= 0 {
+		return 0
+	}
+	idx := cnt
+	if idx >= len(zobristHand[ti][base]) {
+		idx = len(zobristHand[ti][base]) - 1
+	}
+	return zobristHand[ti][base][idx]
+}

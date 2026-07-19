@@ -257,6 +257,17 @@ func TestBestContextAlreadyCancelledStillReturnsMove(t *testing.T) {
 // 引き続き履歴付きの正規Copy/Actionを使うので完全には2.3ms水準へは戻らない。
 // BenchmarkSearchDepth3-20            416           3534559 ns/op
 // StageF(仕上げ再計測): 397           3274457 ns/op
+// StageH: legalCandidateをピン検出方式化(shogi側)、negamax内のCopy+Action
+// が呼ぶCandidate()が軽量化されたことで2.3ms水準を超えて短縮
+// BenchmarkSearchDepth3-20            930           1527033 ns/op
+// StageI: negamax/searchRootをCopy+ActionからDoMove/UndoMoveへ変更
+// (単一Boardを掘り下げる)。allocs/opもほぼ半減。
+// BenchmarkSearchDepth3-20           1402            862434 ns/op    8048 allocs/op
+// StageJ: 静止探索(quiesce)を常時有効化・killer/history手順序を追加。
+// killer/historyは通常探索のノードを大きく減らすが、quiesceが末端で
+// 追加のノードを掘るためnegamax全体では正味増加(質と引き換えの想定内の
+// 悪化。TestQuiesceAvoidsHorizonEffectBlunder等で正しさの向上を別途検証)。
+// BenchmarkSearchDepth3-20            336           3562927 ns/op   48747 allocs/op
 func BenchmarkSearchDepth3(b *testing.B) {
 	board, err := shogi.NewBoard(shogi.StartPos)
 	if err != nil {
@@ -340,7 +351,67 @@ func TestParallelWithTTNoRace(t *testing.T) {
 	}
 }
 
+// Stage K-2: Lazy SMP は本質的に非決定的(共有TT経由でworker間の情報が
+// 混ざるため、探索順序次第で結果が変わりうる)。ここでは緩い検証として、
+// (a) 返る手が合法手集合に含まれること、(b) スコアが単独探索の結果と
+// 大きく乖離しない(歩1枚=100点程度)ことだけを確認する。
+// 決定的な比較が必要な既存テストは引き続き Parallel=false のまま。
+func TestParallelResultIsReasonablyCloseToSingleThreaded(t *testing.T) {
+
+	b, err := shogi.NewBoard(shogi.StartPos)
+	if err != nil {
+		t.Fatalf("NewBoard() error: %v", err)
+	}
+
+	depth := 4
+
+	single, err := search.Best(b, search.Options{Depth: depth, TT: true})
+	if err != nil {
+		t.Fatalf("Best() (single) error: %v", err)
+	}
+
+	parallel, err := search.Best(b, search.Options{Depth: depth, Parallel: true, Workers: 4, TT: true})
+	if err != nil {
+		t.Fatalf("Best() (parallel) error: %v", err)
+	}
+
+	if parallel.Action == nil {
+		t.Fatalf("expected a parallel action, got nil")
+	}
+
+	legal := b.Candidate()
+	found := false
+	for _, a := range legal {
+		if a.String() == parallel.Action.String() {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("parallel result %s is not a legal move: %v", parallel.Action.String(), legal)
+	}
+
+	diff := single.Score - parallel.Score
+	if diff < 0 {
+		diff = -diff
+	}
+	const pawnValue = 100
+	if diff > pawnValue {
+		t.Errorf("expected parallel score (%d) to be close to single-threaded score (%d), diff=%d exceeds a pawn's worth",
+			parallel.Score, single.Score, diff)
+	}
+}
+
 // BenchmarkSearchDepth4TT: depth4・置換表ありの速度計測。
+// StageD: 17309642 ns/op
+// StageI: DoMove/UndoMove化。6094286 ns/op
+// StageJ: 静止探索+killer/history追加。ノード自体はkiller/historyで
+// 大幅減(TestKillerHistoryReducesNodesAtDepth4参照)だが、quiesceの
+// 追加探索コストが上回り正味では悪化。
+// BenchmarkSearchDepth4TT-20           46          25469946 ns/op
+// StageK: 置換表のロックフリー化(この関数自体はParallel=falseなので
+// 直接の影響は無いが計測値を記録)。
+// BenchmarkSearchDepth4TT-20           46          24900774 ns/op
 func BenchmarkSearchDepth4TT(b *testing.B) {
 	board, err := shogi.NewBoard(shogi.StartPos)
 	if err != nil {
@@ -350,6 +421,58 @@ func BenchmarkSearchDepth4TT(b *testing.B) {
 	b.ResetTimer()
 	for idx := 0; idx < b.N; idx++ {
 		search.Best(board, search.Options{Depth: 4, Parallel: false, TT: true})
+	}
+}
+
+// BenchmarkSearchDepth4Parallel: Stage K の Lazy SMP(depth4, TTあり,
+// Workers自動)。StageD で報告された「Parallel+TTでGB級」のメモリ問題が
+// 解消され、共有TT1枚(~24MB相当)+worker毎の探索状態のみのオーダーに
+// なっていることを allocs/バイト数で確認する(単独探索と同オーダーで
+// あるべき)。
+// 実測: 16153885 ns/op(単独24900774 ns/opより高速)、47569819 B/op
+// (単独29000279 B/opの約1.6倍。GB級だったStageDの問題は解消)。
+func BenchmarkSearchDepth4Parallel(b *testing.B) {
+	board, err := shogi.NewBoard(shogi.StartPos)
+	if err != nil {
+		b.Fatalf("NewBoard() error: %v", err)
+	}
+
+	b.ResetTimer()
+	for idx := 0; idx < b.N; idx++ {
+		search.Best(board, search.Options{Depth: 4, Parallel: true, TT: true})
+	}
+}
+
+// BenchmarkSearchDepth5TT: depth5・単独探索(置換表あり)の速度計測。
+// Lazy SMP の実効速度向上を比較するための基準値。
+// 実測: 87459275 ns/op(約87.5ms)
+func BenchmarkSearchDepth5TT(b *testing.B) {
+	board, err := shogi.NewBoard(shogi.StartPos)
+	if err != nil {
+		b.Fatalf("NewBoard() error: %v", err)
+	}
+
+	b.ResetTimer()
+	for idx := 0; idx < b.N; idx++ {
+		search.Best(board, search.Options{Depth: 5, Parallel: false, TT: true})
+	}
+}
+
+// BenchmarkSearchDepth5Parallel: depth5・Lazy SMP(置換表あり、
+// Workers自動)の速度計測。同一深さでの wall time が単独探索(
+// BenchmarkSearchDepth5TT)より短縮されることが目標(浅い探索では並列
+// オーバーヘッドが勝つ場合もあるため、未達なら数値をそのまま報告する)。
+// 実測: 55375067 ns/op(約55.4ms)。単独(約87.5ms)比で約37%短縮、
+// 目標達成。
+func BenchmarkSearchDepth5Parallel(b *testing.B) {
+	board, err := shogi.NewBoard(shogi.StartPos)
+	if err != nil {
+		b.Fatalf("NewBoard() error: %v", err)
+	}
+
+	b.ResetTimer()
+	for idx := 0; idx < b.N; idx++ {
+		search.Best(board, search.Options{Depth: 5, Parallel: true, TT: true})
 	}
 }
 
@@ -384,6 +507,10 @@ func TestNegamaxReturnsZeroForRepetitionDraw(t *testing.T) {
 }
 
 // BenchmarkSearchDepth4NoTT: depth4・置換表なしの速度計測。
+// StageD: 23967738 ns/op
+// StageI: DoMove/UndoMove化。7719995 ns/op
+// StageJ: 静止探索+killer/history追加。
+// BenchmarkSearchDepth4NoTT-20         51          25926202 ns/op
 func BenchmarkSearchDepth4NoTT(b *testing.B) {
 	board, err := shogi.NewBoard(shogi.StartPos)
 	if err != nil {

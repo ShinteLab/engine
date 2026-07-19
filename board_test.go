@@ -364,6 +364,11 @@ func BenchmarkCopy(b *testing.B) {
 // StageF-0: legalCandidate内をcopyLite/actionLiteに変更、Stage B水準に復帰
 // BenchmarkCandidate-20             104706             12032 ns/op
 // StageF(仕上げ再計測): 90464               12002 ns/op
+// StageH: ピン検出方式(局面につき1回のlegalInfo計算+軽量判定)に変更、
+// 擬似合法手ごとのcopyLite+actionLite+IsCheckを廃止
+// BenchmarkCandidate-20            463297               2507 ns/op
+// StageI: 変更対象外(Candidate()自体は未変更。search側がDoMove/UndoMove化)
+// BenchmarkCandidate-20            473846               2425 ns/op
 func BenchmarkCandidate(b *testing.B) {
 	board := parse(shogi.StartPos)
 	for idx := 0; idx < b.N; idx++ {

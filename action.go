@@ -88,9 +88,24 @@ func (a *Action) Enemy() *Piece {
 	return a.enemy
 }
 
+// 移動元の座標(打ちの場合は未定義。Hit()で確認すること)
+func (a *Action) BeforeXY() (int, int) {
+	return a.before.XY()
+}
+
+// 移動先(打ち先)の座標
+func (a *Action) AfterXY() (int, int) {
+	return a.after.XY()
+}
+
 // 動作時に取った駒を設定
 func (a *Action) SetEnemy(p *Piece) {
 	a.enemy = p
+}
+
+// この Action が成りを指定しているか(打ちの場合は常にfalse)
+func (a *Action) Promotes() bool {
+	return a.growth
 }
 
 // 成っていい場所かを判定

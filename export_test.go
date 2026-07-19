@@ -19,6 +19,7 @@ var ExportSquareOf = squareOf
 var ExportBoardSet = (*Board).set
 var ExportBoardParse = (*Board).parse
 var ExportBoardPseudoCandidate = (*Board).pseudoCandidate
+var ExportBoardComputeHash = (*Board).computeHash
 
 // CampBoard
 var ExportCampBoardCanBit = (*CampBoard).canBit
