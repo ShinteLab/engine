@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"shogi"
-	"shogi/search"
+	"shinte/engine"
+	"shinte/engine/search"
 )
 
 type ThinkEngine struct {

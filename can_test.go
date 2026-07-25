@@ -3,7 +3,7 @@ package shogi_test
 import (
 	"fmt"
 	"log/slog"
-	"shogi"
+	"shinte/engine"
 	"testing"
 )
 

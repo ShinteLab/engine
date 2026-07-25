@@ -4,7 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-A Go shogi engine library (`module shogi`): bitboard-based board representation, fully legal move generation (perft-verified), the USI protocol loop, and a `search` subpackage (alpha-beta + quiescence + transposition table + Lazy SMP). An engine author implements the `Engine` interface (engine.go) and calls `shogi.Start(engine)`; optional interfaces `ContextEngine` (info output / stop), `MateEngine` (`go mate`), and `OptionEngine` (`setoption`) unlock USI extensions. Comments and docs are in Japanese.
+A Go shogi engine library: bitboard-based board representation, fully legal move generation (perft-verified), the USI protocol loop, and a `search` subpackage (alpha-beta + quiescence + transposition table + Lazy SMP). An engine author implements the `Engine` interface (engine.go) and calls `shogi.Start(engine)`; optional interfaces `ContextEngine` (info output / stop), `MateEngine` (`go mate`), and `OptionEngine` (`setoption`) unlock USI extensions. Comments and docs are in Japanese.
+
+This directory is `package shogi` inside the repo-wide module `shinte` (there is no `module shogi` of its own any more — the old standalone module was folded in). Import paths are `shinte/engine` and `shinte/engine/search`. See the repository root `CLAUDE.md` for cross-project rules.
+
+### Dependency on `core`
+
+SFEN/USI notation is **not implemented here** — it lives in `shinte/core/sfen` and `shinte/core/usi`, shared with suteme / prokishi / the frontend. Used from board.go, piece.go (`sfen`), action.go, pos.go, search/tt.go (`usi`).
+
+- `core/sfen`'s piece codes are numerically identical to this package's `PieceType` base values, so engine passes its own piece types through **without conversion**. Do not renumber `PieceType` without changing `core/sfen` in the same edit.
+- Keep conversions at the I/O boundary (`position` parsing, `bestmove` output). Never add SFEN/USI string work inside move generation or search.
+- If you need a new notation helper, add it to `core`, not here.
 
 ## Commands
 
@@ -34,7 +44,7 @@ Engines log to `shogi_<pid>.log` in the working directory; `*.log` and `_dist` a
 
 ## Architecture
 
-Root directory is one package, `shogi`; `search/` is the only subpackage.
+`engine/` itself is one package, `shogi`; `search/` is the only subpackage.
 
 **Board model**: `Board` (board.go) holds `turn`, move number, `camps [2]*CampBoard` (index 0 = black `b` via `TurnType.Index()`), the Zobrist `hash`, and position `history` for repetition detection. `CampBoard` (board_camp.go) holds one side's 14 per-piece-type `BitBoard`s plus an aggregate `board`, the hand (`has Pieces`), and a mutual `enemy` pointer. `BitBoard` (board_bit.go) packs 81 squares into `[2]uint64`, linear `sq = (y-1)*9 + (x-1)`; iterate with `forEach` (TrailingZeros64).
 

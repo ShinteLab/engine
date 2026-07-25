@@ -1,7 +1,7 @@
 package search
 
 import "context"
-import "shogi"
+import "shinte/engine"
 
 //this test file exports private symbols for search_test package tests
 

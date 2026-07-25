@@ -6,7 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"shogi"
+	"shinte/engine"
 	"strings"
 	"sync"
 	"testing"

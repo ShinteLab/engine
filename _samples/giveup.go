@@ -1,7 +1,7 @@
 package samples
 
 import (
-	"shogi"
+	"shinte/engine"
 )
 
 type GiveupEngine struct {

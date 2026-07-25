@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"shinte/core/sfen"
 	"golang.org/x/xerrors"
 )
 
@@ -181,45 +182,21 @@ func (b *Board) set(x, y int, p *Piece) error {
 	return nil
 }
 
-func (b *Board) parse(sfen string) error {
-
-	s := strings.Split(sfen, SFENLine)
-	if len(s) != 9 {
-		return fmt.Errorf("SFEN parse error:%s", sfen)
-	}
-
-	for y := 1; y <= 9; y++ {
-
-		line := s[y-1]
-		x := 0
-
-		for idx := 0; idx < len(line); idx++ {
-
-			c := line[idx]
-
-			//空白の場合
-			if c >= '0' && c <= '9' {
-				//設定位置を追加
-				x = x + (int(c) - 48)
-			} else {
-
-				p := ""
-				if c == '+' {
-					p = "+"
-					idx++
-					c = line[idx]
-				}
-
-				piece := NewPieceFromString(string(c) + p)
-				b.set(x+1, y, piece)
-				x++
-			}
+// SFEN の盤面部分を解析して駒を配置する。盤面文字列の解析仕様は
+// core/sfen に集約している。SFEN 記述順の rank/file(0..8)を内部座標
+// (x=file+1, y=rank+1)へ写す。
+func (b *Board) parse(sfenBoard string) error {
+	return sfen.ParseBoard(sfenBoard, func(rank, file, base int, black, promoted bool) {
+		typ := PieceType(base)
+		if promoted {
+			typ = typ.Growth()
 		}
-		if x != 9 {
-			return fmt.Errorf("SFEN parse error:%d", x)
+		turn := TurnBlack
+		if !black {
+			turn = TurnWhite
 		}
-	}
-	return nil
+		b.set(file+1, rank+1, NewPieceFromType(typ, turn))
+	})
 }
 
 // ターン 持ち駒 ターン数の文字列

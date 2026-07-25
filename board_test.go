@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"shogi"
+	"shinte/engine"
 	"testing"
 )
 

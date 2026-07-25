@@ -2,7 +2,7 @@ package search
 
 import (
 	"math/rand"
-	"shogi"
+	"shinte/engine"
 	"sync"
 	"testing"
 )

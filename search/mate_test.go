@@ -2,8 +2,8 @@ package search_test
 
 import (
 	"context"
-	"shogi"
-	"shogi/search"
+	"shinte/engine"
+	"shinte/engine/search"
 	"testing"
 	"time"
 )

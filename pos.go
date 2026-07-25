@@ -1,5 +1,7 @@
 package shogi
 
+import "shinte/core/usi"
+
 // 盤面位置情報
 type Pos [2]uint8
 
@@ -12,20 +14,14 @@ func newPos(x, y int) Pos {
 	return p
 }
 
+// USI マス文字列を Pos に変換する。パース不能なら PosNone。
+// 座標変換の仕様は core/usi に集約している。
 func parsePos(buf string) Pos {
-
-	if len(buf) != 2 {
+	x, y, ok := usi.ParseSquare(buf)
+	if !ok {
 		return PosNone
 	}
-
-	//49 - 57 1-9
-	x := buf[0] - 48
-	//座標系とは逆
-	x = 10 - x
-
-	//97 - 105 a-i
-	y := buf[1] - 96
-	return newPos(int(x), int(y))
+	return newPos(x, y)
 }
 
 func (p Pos) XY() (int, int) {
@@ -33,10 +29,5 @@ func (p Pos) XY() (int, int) {
 }
 
 func (p Pos) String() string {
-
-	//送信系は逆になる
-	x := byte((10 - p[0]) + 48)
-
-	y := byte(p[1] + 96)
-	return string(x) + string(y)
+	return usi.FormatSquare(int(p[0]), int(p[1]))
 }

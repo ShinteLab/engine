@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
-	"shogi"
+	"shinte/engine"
 	"time"
 )
 

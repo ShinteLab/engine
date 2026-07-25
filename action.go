@@ -2,7 +2,8 @@ package shogi
 
 import (
 	"fmt"
-	"strings"
+
+	"shinte/core/usi"
 )
 
 type Actions []*Action
@@ -35,43 +36,27 @@ func newMoveAction(before, after Pos, growth bool) *Action {
 	return &Action{before: before, after: after, growth: growth}
 }
 
-// 動作文字列から動作を作成
+// 動作文字列から動作を作成。手表記の仕様は core/usi に集約している。
 func NewAction(buf string) *Action {
 
-	var m Action
-
-	m.before = PosNone
-	m.after = PosNone
-	m.hit = 0
-	m.growth = false
-
-	if buf == Resign {
-		m.resign = true
-		return &m
-	}
-
-	leng := len(buf)
-	if leng == 2 {
-		//元位置のみ
-		m.before = parsePos(buf)
-	} else if leng >= 4 {
-		//打ちの場合
-		if strings.Index(buf, "*") == 1 {
-			m.hit = buf[0]
-			m.after = parsePos(buf[2:4])
-		} else {
-			//ならない移動
-			m.before = parsePos(buf[0:2])
-			m.after = parsePos(buf[2:4])
-			if leng == 5 {
-				//なる移動
-				m.growth = true
-			}
-		}
-	} else {
+	mv, ok := usi.ParseMove(buf)
+	if !ok {
 		return nil
 	}
 
+	var m Action
+	if mv.Resign {
+		m.resign = true
+		m.before = PosNone
+		m.after = PosNone
+		return &m
+	}
+
+	//打ちでない場合 mv.Drop==0、移動元/先が無い成分は 0 のため PosNone になる
+	m.hit = mv.Drop
+	m.before = newPos(mv.FromX, mv.FromY)
+	m.after = newPos(mv.ToX, mv.ToY)
+	m.growth = mv.Promote
 	return &m
 }
 
@@ -130,21 +115,17 @@ func (m *Action) Next() *Action {
 	return m.next
 }
 
-// 動作文字列に変換
+// 動作文字列に変換。手表記の仕様は core/usi に集約している。
 func (m Action) String() string {
 
 	if m.resign {
-		return Resign
+		return usi.Resign
 	}
 
-	if m.Hit() {
-		return string(m.hit) + "*" + m.after.String()
-	}
-	g := ""
-	if m.growth {
-		g = "+"
-	}
-	return m.before.String() + m.after.String() + g
+	mv := usi.Move{Drop: m.hit, Promote: m.growth}
+	mv.FromX, mv.FromY = m.before.XY()
+	mv.ToX, mv.ToY = m.after.XY()
+	return mv.String()
 }
 
 // デバッグ用の文字列

@@ -3,6 +3,8 @@ package shogi
 import (
 	"fmt"
 	"strings"
+
+	"shinte/core/sfen"
 )
 
 // 向き等を持つ駒
@@ -143,60 +145,24 @@ func (t PieceType) Value() int {
 	return 0
 }
 
+// 駒文字(大文字=先手/小文字=後手)から駒種と手番を得る。
+// 文字マッピングの仕様は core/sfen に集約している。
 func NewPieceType(v byte) (PieceType, TurnType) {
-	//65-90 A-Z
-	//97-122 a-z
+	base, black := sfen.ParsePieceLetter(v)
 	t := TurnBlack
-	if v >= 97 && v <= 122 {
-		v = v - 32
+	if !black {
 		t = TurnWhite
 	}
-	return parsePieceType(v), t
-}
-
-func parsePieceType(p byte) PieceType {
-	switch p {
-	case 'P':
-		return Pawn
-	case 'L':
-		return Lance
-	case 'N':
-		return Knight
-	case 'S':
-		return Silver
-	case 'G':
-		return Gold
-	case 'R':
-		return Rook
-	case 'B':
-		return Bishop
-	case 'K':
-		return King
-	default:
-		return PieceTypeNotFound
+	if base == sfen.NotFound {
+		return PieceTypeNotFound, t
 	}
+	return PieceType(base), t
 }
 
+// 駒種に対応する SFEN の大文字(成駒はベース駒の文字)を返す。
+// 文字マッピングの仕様は core/sfen に集約している。
 func (t PieceType) Mark() string {
-	switch t {
-	case Pawn, GrowthPawn:
-		return "P"
-	case Lance, GrowthLance:
-		return "L"
-	case Knight, GrowthKnight:
-		return "N"
-	case Silver, GrowthSilver:
-		return "S"
-	case Gold:
-		return "G"
-	case Rook, GrowthRook:
-		return "R"
-	case Bishop, GrowthBishop:
-		return "B"
-	case King:
-		return "K"
-	}
-	return "None"
+	return sfen.Letter(int(t))
 }
 
 func (t PieceType) Base() PieceType {

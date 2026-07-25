@@ -2,7 +2,7 @@ package search
 
 import (
 	"context"
-	"shogi"
+	"shinte/engine"
 	"testing"
 )
 

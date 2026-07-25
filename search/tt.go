@@ -1,10 +1,10 @@
 package search
 
 import (
-	"fmt"
 	"sync/atomic"
 
-	"shogi"
+	"shinte/core/usi"
+	"shinte/engine"
 )
 
 // 置換表のスコア種別
@@ -157,7 +157,7 @@ func decodeMove(v uint32) *shogi.Action {
 
 	to := int((v >> 7) & 0x7F)
 	tx, ty := xyFromSquareIndex(to)
-	toStr := posString(tx, ty)
+	toStr := usi.FormatSquare(tx, ty)
 
 	hit := (v>>15)&1 != 0
 	if hit {
@@ -167,7 +167,7 @@ func decodeMove(v uint32) *shogi.Action {
 
 	from := int(v & 0x7F)
 	fx, fy := xyFromSquareIndex(from)
-	fromStr := posString(fx, fy)
+	fromStr := usi.FormatSquare(fx, fy)
 
 	str := fromStr + toStr
 	if (v>>14)&1 != 0 {
@@ -178,12 +178,6 @@ func decodeMove(v uint32) *shogi.Action {
 
 func xyFromSquareIndex(sq int) (int, int) {
 	return sq%9 + 1, sq/9 + 1
-}
-
-// USI形式の座標文字列(shogi.Pos.String()と同じ規則: x座標は10-xの数字、
-// y座標はa..iのアルファベット)を組み立てる。
-func posString(x, y int) string {
-	return fmt.Sprintf("%d%c", 10-x, 'a'+byte(y)-1)
 }
 
 // probe: 一致するエントリがあり、かつ十分な深さで探索済みなら

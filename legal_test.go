@@ -2,7 +2,7 @@ package shogi_test
 
 import (
 	"fmt"
-	"shogi"
+	"shinte/engine"
 	"testing"
 )
 

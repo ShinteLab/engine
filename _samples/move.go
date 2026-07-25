@@ -2,7 +2,7 @@ package samples
 
 import (
 	"math/rand"
-	"shogi"
+	"shinte/engine"
 	"time"
 )
 

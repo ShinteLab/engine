@@ -3,7 +3,7 @@ package shogi_test
 import (
 	"fmt"
 	"math/rand"
-	"shogi"
+	"shinte/engine"
 	"testing"
 )
 

@@ -3,7 +3,7 @@ package search
 import (
 	"context"
 
-	"shogi"
+	"shinte/engine"
 )
 
 // ctx.Err() を確認するノード数間隔(negamaxと同じ間隔を使う)

@@ -3,8 +3,8 @@ package main
 import (
 	"os"
 
-	"shogi"
-	samples "shogi/_samples"
+	"shinte/engine"
+	samples "shinte/engine/_samples"
 )
 
 func main() {

@@ -4,8 +4,8 @@ import (
 	"log/slog"
 	"os"
 
-	"shogi"
-	samples "shogi/_samples"
+	"shinte/engine"
+	samples "shinte/engine/_samples"
 )
 
 func main() {

@@ -1,6 +1,6 @@
 package search
 
-import "shogi"
+import "shinte/engine"
 
 // 評価関数: 駒得(Material)差分 + 駒位置(PST)差分。
 // どちらも「手番側から見た自分 - 相手」の形で返す。

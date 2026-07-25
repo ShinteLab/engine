@@ -1,8 +1,8 @@
 package search_test
 
 import (
-	"shogi"
-	"shogi/search"
+	"shinte/engine"
+	"shinte/engine/search"
 	"testing"
 )
 
