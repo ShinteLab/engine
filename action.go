@@ -3,7 +3,7 @@ package shogi
 import (
 	"fmt"
 
-	"shinte/core/usi"
+	"github.com/ShinteLab/core/usi"
 )
 
 type Actions []*Action

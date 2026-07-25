@@ -5,7 +5,7 @@ import (
 	"sort"
 	"sync/atomic"
 
-	"shinte/engine"
+	"github.com/ShinteLab/engine"
 )
 
 // quiesce内の再帰の最大延長手数(暴走防止)。打ち切り時はevalを返す。

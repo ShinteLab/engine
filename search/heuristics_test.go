@@ -2,7 +2,7 @@ package search
 
 import (
 	"context"
-	"shinte/engine"
+	"github.com/ShinteLab/engine"
 	"testing"
 )
 

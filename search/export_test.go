@@ -1,7 +1,7 @@
 package search
 
 import "context"
-import "shinte/engine"
+import "github.com/ShinteLab/engine"
 
 //this test file exports private symbols for search_test package tests
 

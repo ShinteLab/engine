@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"shinte/core/sfen"
+	"github.com/ShinteLab/core/sfen"
 	"golang.org/x/xerrors"
 )
 

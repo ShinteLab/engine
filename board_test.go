@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"shinte/engine"
+	"github.com/ShinteLab/engine"
 	"testing"
 )
 

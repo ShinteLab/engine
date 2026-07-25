@@ -3,8 +3,8 @@ package search
 import (
 	"sync/atomic"
 
-	"shinte/core/usi"
-	"shinte/engine"
+	"github.com/ShinteLab/core/usi"
+	"github.com/ShinteLab/engine"
 )
 
 // 置換表のスコア種別

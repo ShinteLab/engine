@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"shinte/engine"
-	"shinte/engine/search"
+	"github.com/ShinteLab/engine"
+	"github.com/ShinteLab/engine/search"
 )
 
 type ThinkEngine struct {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"shinte/core/sfen"
+	"github.com/ShinteLab/core/sfen"
 )
 
 // 向き等を持つ駒

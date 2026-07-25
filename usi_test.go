@@ -6,7 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"shinte/engine"
+	"github.com/ShinteLab/engine"
 	"strings"
 	"sync"
 	"testing"

@@ -1,7 +1,7 @@
 package samples
 
 import (
-	"shinte/engine"
+	"github.com/ShinteLab/engine"
 )
 
 type GiveupEngine struct {

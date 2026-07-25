@@ -1,6 +1,6 @@
 package shogi
 
-import "shinte/core/usi"
+import "github.com/ShinteLab/core/usi"
 
 // 盤面位置情報
 type Pos [2]uint8

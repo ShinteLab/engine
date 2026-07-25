@@ -4,8 +4,8 @@ import (
 	"log/slog"
 	"os"
 
-	"shinte/engine"
-	samples "shinte/engine/_samples"
+	"github.com/ShinteLab/engine"
+	samples "github.com/ShinteLab/engine/_samples"
 )
 
 func main() {

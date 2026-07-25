@@ -6,11 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A Go shogi engine library: bitboard-based board representation, fully legal move generation (perft-verified), the USI protocol loop, and a `search` subpackage (alpha-beta + quiescence + transposition table + Lazy SMP). An engine author implements the `Engine` interface (engine.go) and calls `shogi.Start(engine)`; optional interfaces `ContextEngine` (info output / stop), `MateEngine` (`go mate`), and `OptionEngine` (`setoption`) unlock USI extensions. Comments and docs are in Japanese.
 
-This directory is `package shogi` inside the repo-wide module `shinte` (there is no `module shogi` of its own any more — the old standalone module was folded in). Import paths are `shinte/engine` and `shinte/engine/search`. See the repository root `CLAUDE.md` for cross-project rules.
+This directory is `package shogi` and its own Go module, `github.com/ShinteLab/engine`. Import paths are `github.com/ShinteLab/engine` and `github.com/ShinteLab/engine/search`. `core` is pulled in via a relative `replace` (`replace github.com/ShinteLab/core => ../core`) — no tags are published yet, so do not drop that directive. See the parent directory's `CLAUDE.md` for cross-project rules.
 
 ### Dependency on `core`
 
-SFEN/USI notation is **not implemented here** — it lives in `shinte/core/sfen` and `shinte/core/usi`, shared with suteme / prokishi / the frontend. Used from board.go, piece.go (`sfen`), action.go, pos.go, search/tt.go (`usi`).
+SFEN/USI notation is **not implemented here** — it lives in `github.com/ShinteLab/core/sfen` and `github.com/ShinteLab/core/usi`, shared with suteme / prokishi / the frontend. Used from board.go, piece.go (`sfen`), action.go, pos.go, search/tt.go (`usi`).
 
 - `core/sfen`'s piece codes are numerically identical to this package's `PieceType` base values, so engine passes its own piece types through **without conversion**. Do not renumber `PieceType` without changing `core/sfen` in the same edit.
 - Keep conversions at the I/O boundary (`position` parsing, `bestmove` output). Never add SFEN/USI string work inside move generation or search.

@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"shinte/engine"
+	"github.com/ShinteLab/engine"
 )
 
 // 反復深化の各深さ完了時に呼ばれる情報コールバック向けの構造体。

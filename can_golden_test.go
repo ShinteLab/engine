@@ -1,7 +1,7 @@
 package shogi_test
 
 import (
-	"shinte/engine"
+	"github.com/ShinteLab/engine"
 	"sort"
 	"testing"
 )

@@ -2,7 +2,7 @@ package search
 
 import (
 	"math/rand"
-	"shinte/engine"
+	"github.com/ShinteLab/engine"
 	"sync"
 	"testing"
 )

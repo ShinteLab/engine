@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
-	"shinte/engine"
+	"github.com/ShinteLab/engine"
 	"time"
 )
 

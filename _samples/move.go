@@ -2,7 +2,7 @@ package samples
 
 import (
 	"math/rand"
-	"shinte/engine"
+	"github.com/ShinteLab/engine"
 	"time"
 )
 

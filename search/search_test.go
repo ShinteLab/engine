@@ -2,8 +2,8 @@ package search_test
 
 import (
 	"context"
-	"shinte/engine"
-	"shinte/engine/search"
+	"github.com/ShinteLab/engine"
+	"github.com/ShinteLab/engine/search"
 	"testing"
 	"time"
 )
