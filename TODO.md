@@ -1,7 +1,7 @@
 # engine の TODO
 
 `engine` を**単体で使えるエンジンとして仕上げる**ための積み残し。
-実装状況そのものは `CLAUDE.md` の「Status」節にあり、ここはその先の話。
+実装状況そのものは `AGENTS.md` の「Status」節にあり、ここはその先の話。
 
 ## 前提が変わった（2026-08-08）
 
@@ -64,7 +64,7 @@ ikkyoku(USIクライアント) ──stdin/stdout(USI)──> エンジンのプ
 - [ ] **`go infinite`。** 結果的に無制限にはなるが、意図して扱っているわけではない
       （`stop` が来るまで返さない、という契約を明示したい）
 - [ ] `go depth <n>` / `go nodes <n>`
-- [ ] `go ponder` / `ponderhit`（`CLAUDE.md` の Known gaps にもある）
+- [ ] `go ponder` / `ponderhit`（`AGENTS.md` の Known gaps にもある）
 
 ## 4. exe として配る
 
@@ -95,7 +95,7 @@ ikkyoku(USIクライアント) ──stdin/stdout(USI)──> エンジンのプ
 
 **ikkyoku から見ると、ここが「使えるかどうか」を決める。**
 
-- [ ] PST が手作り・未調整（`CLAUDE.md` の Known gaps）。まず評価関数の素性を決める
+- [ ] PST が手作り・未調整（`AGENTS.md` の Known gaps）。まず評価関数の素性を決める
 - [ ] `Action()` が hash を毎回再計算している（`DoMove` だけが差分更新）
 - [ ] 無駄合いを詰み探索で枝刈りしていない
 - [ ] 定跡が無い
