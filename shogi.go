@@ -15,8 +15,10 @@ import (
 // ⚠️ ライブラリとして組み込むとき（同じプロセスの中で USI を繋ぐなど）はこれを使わず、
 // NewUSI と SetLogger を使うこと。既定の Logger を書き換えてしまう。
 
+// Start は Debug まで残す。エンジンの実行ファイルのログは、USI のやり取り
+// （USER> / USER<。Debug で出している）を後から読むためのものなので。
 func Start(engine Engine) error {
-	return StartWithLevel(engine, slog.LevelInfo)
+	return StartWithLevel(engine, slog.LevelDebug)
 }
 
 func StartWithLevel(engine Engine, lv slog.Level) error {

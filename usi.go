@@ -98,7 +98,7 @@ func (usi *USI) Wait() error {
 		return fmt.Errorf("EOF error")
 	}
 
-	logger().Info(fmt.Sprintf("USER> [%s]", line))
+	logger().Debug(fmt.Sprintf("USER> [%s]", line))
 
 	//strings.Fields は連続する空白・前後の余分な空白を無視してトークン化する。
 	//strings.Split(line," ")では末尾の空白等が空文字列トークンを生み、
@@ -118,7 +118,7 @@ func (usi *USI) Wait() error {
 
 func (usi *USI) sendCommand(cmd string) error {
 
-	logger().Info(fmt.Sprintf("USER< [%s]", cmd))
+	logger().Debug(fmt.Sprintf("USER< [%s]", cmd))
 
 	var buf bytes.Buffer
 	_, err := buf.WriteString(cmd + "\n")
@@ -322,7 +322,7 @@ func (usi *USI) goCommand(args []string) error {
 			return
 		}
 
-		logger().Info(fmt.Sprintf("Ans:%v", action))
+		logger().Debug(fmt.Sprintf("Ans:%v", action))
 		usi.sender <- "bestmove " + action.String()
 	}()
 
