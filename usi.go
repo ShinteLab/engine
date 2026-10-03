@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,14 +47,14 @@ var Quit = fmt.Errorf("quit")
 
 func (usi *USI) Start() error {
 
-	slog.Info("usi start")
+	logger().Info("usi start")
 
 	quit := make(chan error)
 
 	defer func() {
 		err := recover()
 		if err != nil {
-			slog.Error("Panic:\n%+v", err)
+			logger().Error(fmt.Sprintf("Panic:\n%+v", err))
 		}
 	}()
 
@@ -80,7 +79,7 @@ func (usi *USI) Start() error {
 			if errors.Is(err, Quit) {
 				return nil
 			} else if err != nil {
-				slog.Error(fmt.Sprintf("%+v", err))
+				logger().Error(fmt.Sprintf("%+v", err))
 				return xerrors.Errorf("Wait() error: %w", err)
 			}
 			return nil
@@ -99,7 +98,7 @@ func (usi *USI) Wait() error {
 		return fmt.Errorf("EOF error")
 	}
 
-	slog.Info(fmt.Sprintf("USER> [%s]", line))
+	logger().Info(fmt.Sprintf("USER> [%s]", line))
 
 	//strings.Fields は連続する空白・前後の余分な空白を無視してトークン化する。
 	//strings.Split(line," ")では末尾の空白等が空文字列トークンを生み、
@@ -119,7 +118,7 @@ func (usi *USI) Wait() error {
 
 func (usi *USI) sendCommand(cmd string) error {
 
-	slog.Info(fmt.Sprintf("USER< [%s]", cmd))
+	logger().Info(fmt.Sprintf("USER< [%s]", cmd))
 
 	var buf bytes.Buffer
 	_, err := buf.WriteString(cmd + "\n")
@@ -315,15 +314,15 @@ func (usi *USI) goCommand(args []string) error {
 		}
 
 		if err != nil {
-			slog.Error(fmt.Sprintf("GetBest error: %v", err))
+			logger().Error(fmt.Sprintf("GetBest error: %v", err))
 			return
 		}
 		if action == nil {
-			slog.Error("GetBest returned nil action")
+			logger().Error("GetBest returned nil action")
 			return
 		}
 
-		slog.Info(fmt.Sprintf("Ans:%v", action))
+		logger().Info(fmt.Sprintf("Ans:%v", action))
 		usi.sender <- "bestmove " + action.String()
 	}()
 
@@ -378,7 +377,7 @@ func (usi *USI) mateCommand(args []string) error {
 		moves, err := me.GetMate(ctx, board)
 
 		if err != nil {
-			slog.Error(fmt.Sprintf("GetMate error: %v", err))
+			logger().Error(fmt.Sprintf("GetMate error: %v", err))
 			usi.sender <- "checkmate timeout"
 			return
 		}

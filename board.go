@@ -2,7 +2,6 @@ package shogi
 
 import (
 	"fmt"
-	"log/slog"
 	"strconv"
 	"strings"
 
@@ -206,7 +205,7 @@ func (b *Board) SetStatus(t string, h string, n string) error {
 	var err error
 	b.num, err = strconv.Atoi(n)
 	if err != nil {
-		slog.Error(fmt.Sprintf("Turn number Cast error:[%s]", n))
+		logger().Error(fmt.Sprintf("Turn number Cast error:[%s]", n))
 		b.num = 1
 	}
 	return nil

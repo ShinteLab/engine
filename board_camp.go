@@ -2,7 +2,6 @@ package shogi
 
 import (
 	"fmt"
-	"log/slog"
 )
 
 // 片方の盤面
@@ -72,7 +71,7 @@ func (b *CampBoard) actionInfo(m *Action) (moveInfo, bool) {
 	//元位置の駒を取得してを削除
 	p, movedType, placedType, err := b.setMoveInfo(m)
 	if err != nil {
-		slog.Error(fmt.Sprintf("setMove() error: %v", err))
+		logger().Error(fmt.Sprintf("setMove() error: %v", err))
 		return info, false
 	}
 	info.movedType = movedType
@@ -81,13 +80,13 @@ func (b *CampBoard) actionInfo(m *Action) (moveInfo, bool) {
 	//相手位置に居れば削除し、自分に追加
 	f, capturedType, err := b.getEnemyInfo(p)
 	if err != nil {
-		slog.Error(fmt.Sprintf("getEnemy() error: %v", err))
+		logger().Error(fmt.Sprintf("getEnemy() error: %v", err))
 		return info, false
 	}
 
 	//打ちで相手位置にいた場合
 	if f && m.Hit() {
-		slog.Error(fmt.Sprintf("Hit and Enemy error: %v", err))
+		logger().Error(fmt.Sprintf("Hit and Enemy error: %v", err))
 		return info, false
 	}
 
@@ -132,7 +131,7 @@ func (b *CampBoard) setMoveInfo(action *Action) (Pos, PieceType, PieceType, erro
 			if wkT != PieceTypeNotFound {
 				t = wkT
 			} else {
-				slog.Error(fmt.Sprintf("growth error[%v][%v]", t, action))
+				logger().Error(fmt.Sprintf("growth error[%v][%v]", t, action))
 			}
 		} else {
 			return PosNone, movedType, PieceTypeNotFound, fmt.Errorf("Growth error[%s]", action)
@@ -238,7 +237,7 @@ func (b *CampBoard) emptyPos() []Pos {
 
 	bit := b.board
 	bit.or(&b.enemy.board)
-	//slog.Info(fmt.Sprintf("%#v", bit))
+	//logger().Info(fmt.Sprintf("%#v", bit))
 	//全盤面を作成
 	//空いているビットを作成
 	return bit.empty()

@@ -42,6 +42,8 @@ Known environment limitation: `go test -race` fails to load on this machine (`0x
 
 Engines log to `shogi_<pid>.log` in the working directory (`Start`; use `StartWithLogFile` to change the name or level); `*.log` and `_dist` are gitignored.
 
+**Logging (logger.go).** The library holds no log settings: it logs through `logger()`, which is whatever `*slog.Logger` the caller passed to `SetLogger` (nil → `slog.Default()`, looked up on every call). Do **not** call `slog.SetDefault` or `slog.Info` etc. directly from library code, and do not add a package-specific level type or option — callers control level and output only with standard slog types. The one exception is `Start*`: it is the entry point an engine executable's `main` hands the whole process to, so it points the default logger at the log file (and restores it on return); embedders (e.g. `ikkyoku/usi/local.go`) use `NewUSI` + `SetLogger` instead. ⚠️ **Never log to stdout** — `Start` speaks USI over stdin/stdout, and anything else on stdout is read by the GUI as an engine reply.
+
 ## Architecture
 
 `engine/` itself is one package, `shogi`; `search/` is the only subpackage.
