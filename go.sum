@@ -1,2 +1,4 @@
+github.com/ShinteLab/core v0.2.0 h1:4euNvry5TDnZ7F+cx73jxWuV9XKio8JyDEHbIVhzWV0=
+github.com/ShinteLab/core v0.2.0/go.mod h1:QPvoFUYaiYPCSBLzdctbW3b7+yeGB+oDsrm6dQrIdkU=
 golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 h1:+cNy6SZtPcJQH3LJVLOSmiC7MMxXNOb3PU/VUEz+EhU=
 golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028/go.mod h1:NDW/Ps6MPRej6fsCIbMTohpP40sJ/P/vI1MoTEGwX90=

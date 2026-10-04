@@ -6,7 +6,7 @@ This file provides guidance to coding agents working with code in this repositor
 
 A Go shogi engine library: bitboard-based board representation, fully legal move generation (perft-verified), the USI protocol loop, and a `search` subpackage (alpha-beta + quiescence + transposition table + Lazy SMP). An engine author implements the `Engine` interface (engine.go) and calls `shogi.Start(engine)`; optional interfaces `ContextEngine` (info output / stop), `MateEngine` (`go mate`), and `OptionEngine` (`setoption`) unlock USI extensions. Comments and docs are in Japanese.
 
-This directory is `package shogi` and its own Go module, `github.com/ShinteLab/engine`. Import paths are `github.com/ShinteLab/engine` and `github.com/ShinteLab/engine/search`. `core` is pulled in via a relative `replace` (`replace github.com/ShinteLab/core => ../core`) — no tags are published yet, so do not drop that directive. See the parent directory's `AGENTS.md` for cross-project rules. Outstanding work toward a standalone USI engine (MultiPV, ponder, etc.) is tracked in `TODO.md`.
+This directory is `package shogi` and its own Go module, `github.com/ShinteLab/engine`. Import paths are `github.com/ShinteLab/engine` and `github.com/ShinteLab/engine/search`. `core` is pulled in by tag (`github.com/ShinteLab/core v0.2.0`, through the module proxy — no `replace`). Edits to the local `../core` do not reach engine until `core` is tagged and this `require` is bumped (`go get github.com/ShinteLab/core@vX.Y.Z`). See the parent directory's `AGENTS.md` for cross-project rules. Outstanding work toward a standalone USI engine (MultiPV, ponder, etc.) is tracked in `TODO.md`.
 
 ### Dependency on `core`
 
